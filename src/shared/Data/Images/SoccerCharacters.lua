@@ -1,0 +1,73 @@
+return table.freeze({
+	-- Common
+	["Verstorm"] = "rbxassetid://103913054163834",
+	["Matteo"] = "rbxassetid://80713065758149",
+	["Savanen"] = "rbxassetid://127166457267651",
+	["Alvarque"] = "rbxassetid://85351821096298",
+	["Kravetsky"] = "rbxassetid://106241840724768",
+	["Bambang"] = "rbxassetid://77179452925327",
+	["Arsen"] = "rbxassetid://96483765334928",
+	["Takumi"] = "rbxassetid://125316682549429",
+	["Enzo"] = "rbxassetid://116235226622022",
+	["Markus"] = "rbxassetid://72672102016035",
+
+	-- Uncommon
+	["Antonni"] = "rbxassetid://86965179735494",
+	["Richarlisyun"] = "rbxassetid://92704999219285",
+	["Koi Hovert"] = "rbxassetid://110019382196763",
+	["Mayson Mounty"] = "rbxassetid://107094433395291",
+	["Mark Cucurelo"] = "rbxassetid://71740643490560",
+	["Kelvin Philips"] = "rbxassetid://131613044717458",
+	["Cristian Pulisik"] = "rbxassetid://114454163674213",
+	["Feriran Torrizo"] = "rbxassetid://103870880181058",
+	["Rahem Starlingo"] = "rbxassetid://98865470789007",
+	["Alvari Moratta"] = "rbxassetid://98208101967498",
+
+	-- Rare
+	["Martin Odegard"] = "rbxassetid://89061921225328",
+	["Declean Rise"] = "rbxassetid://81129143981960",
+	["Frankie De Jongg"] = "rbxassetid://83289605648740",
+	["Berniado Silvo"] = "rbxassetid://100565339316093",
+	["Federico Valverdi"] = "rbxassetid://99722917368494",
+	["Joao Canceloz"] = "rbxassetid://92109759791844",
+	["Ashraf Hakimy"] = "rbxassetid://71910089725538",
+	["Alfonso Daviez"] = "rbxassetid://112319131321718",
+	["Enzo Fernandiz"] = "rbxassetid://120398684735227",
+	["Flirian Wirtzz"] = "rbxassetid://100540480606135",
+
+	-- Epic
+	["Bakayo Sakko"] = "rbxassetid://77748075015469",
+	["Phil Foder"] = "rbxassetid://135339032726735",
+	["Kvaratskeliya"] = "rbxassetid://94907448088522",
+	["Victor Ohismen"] = "rbxassetid://92304211418503",
+	["Lautario Martinezo"] = "rbxassetid://125520051061818",
+	["Rafel Leo"] = "rbxassetid://123040155054664",
+	["Rodrigo"] = "rbxassetid://93490725779415",
+	["Jamil Musialaa"] = "rbxassetid://122337576221420",
+	["Peedri"] = "rbxassetid://135209633636989",
+	["Rodre"] = "rbxassetid://86408771844189",
+
+	-- Legendary
+	["Kilian Mbape"] = "rbxassetid://127604341161340",
+	["Erlin Haland"] = "rbxassetid://79493210382891",
+	["Hery Ken"] = "rbxassetid://76302689168507",
+	["Robert Lewandosky"] = "rbxassetid://103520414145643",
+	["Ousmana Dembala"] = "rbxassetid://131489799366808",
+	["Rionel Messy"] = "rbxassetid://81284682698325",
+	["Naymar Jrr"] = "rbxassetid://113294469610000",
+	["Ronaldinyo"] = "rbxassetid://101379953812398",
+	["David Bekam"] = "rbxassetid://129625038699049",
+	["Kristiano Ronalde"] = "rbxassetid://112583227194864",
+
+	-- Gold Legendary
+	["GOLD Kilian Mbape"] = "rbxassetid://127604341161340",
+	["GOLD Erlin Haland"] = "rbxassetid://79493210382891",
+	["GOLD Hery Ken"] = "rbxassetid://76302689168507",
+	["GOLD Robert Lewandosky"] = "rbxassetid://103520414145643",
+	["GOLD Ousmana Dembala"] = "rbxassetid://131489799366808",
+	["GOLD Rionel Messy"] = "rbxassetid://81284682698325",
+	["GOLD Naymar Jrr"] = "rbxassetid://113294469610000",
+	["GOLD Ronaldinyo"] = "rbxassetid://101379953812398",
+	["GOLD David Bekam"] = "rbxassetid://129625038699049",
+	["GOLD Kristiano Ronalde"] = "rbxassetid://112583227194864",
+})

@@ -1,0 +1,343 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
+
+local Knit = require(ReplicatedStorage.Packages.Knit)
+local Roact = require(ReplicatedStorage.Packages.roact)
+local RoactHooks = require(ReplicatedStorage.Packages.hooks)
+local RoduxHooks = require(ReplicatedStorage.Packages.roduxhooks)
+local Sound = require(ReplicatedStorage.Packages.Sound)
+
+local InventoryConstants = require(StarterPlayer.StarterPlayerScripts.Client.Roact.Constants.InventoryConstants)
+local Store = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Store)
+local InventoryActions = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Actions.InventoryActions)
+local AccessoryService = Knit.GetService("AccessoryService")
+
+local DataCacheController = Knit.GetController("DataCacheController")
+local NotificationController = Knit.GetController("NotificationController")
+local UIController = Knit.GetController("UIController")
+
+local Template = DataCacheController:GetFile("Template")
+local UI = DataCacheController:GetFile("Images")
+local FramesConstants = require(StarterPlayer.StarterPlayerScripts.Client.Roact.Constants.FramesConstants)
+
+local AccessoryCard = require(script.Parent.AccessoryCard)
+
+function Accessories(_, hooks)
+	local InventoryReducer = RoduxHooks.useSelector(hooks, function(state)
+		return state.InventoryReducer
+	end)
+	local TeamReducer = RoduxHooks.useSelector(hooks, function(state)
+		return state.TeamReducer
+	end)
+
+	local searchText, setSearchText = hooks.useState("")
+
+	local equippedIds = {}
+	if TeamReducer and TeamReducer.EquippedSoccerCharacters then
+		for _, charId in pairs(TeamReducer.EquippedSoccerCharacters) do
+			local charData = InventoryReducer.SoccerCharacters[tostring(charId)]
+				or InventoryReducer.SoccerCharacters[tonumber(charId)]
+			if charData and charData.Accessories then
+				for _, accId in pairs(charData.Accessories) do
+					equippedIds[tostring(accId)] = true
+				end
+			end
+		end
+	end
+
+	local AccessoryCards = {}
+	local numCards = 0
+	local totalOwned = 0
+
+	if InventoryReducer.Accessories then
+		for id, accData in pairs(InventoryReducer.Accessories) do
+			local templateData = Template.Accessories[accData.Name]
+			if templateData then
+				totalOwned += 1
+
+				if searchText ~= "" then
+					if not string.find(string.lower(templateData.Name), string.lower(searchText), 1, true) then
+						continue
+					end
+				end
+
+				numCards += 1
+				local isEquipped = equippedIds[tostring(id)] or false
+
+				local shoot = templateData.Additions and templateData.Additions.Shoot or 0
+				local dribble = templateData.Additions and templateData.Additions.Dribble or 0
+				local pass = templateData.Additions and templateData.Additions.Pass or 0
+				local totalStat = shoot + dribble + pass
+				local statScore = math.round(totalStat * 100)
+				local statOffset = (10000 - statScore) * 100
+				local rarityPriority = Template.RarityPriority[templateData.Rarity or "Common"] or 100
+
+				AccessoryCards[id] = AccessoryCard({
+					id = id,
+					name = templateData.Name,
+					type = templateData.Type,
+					shoot = shoot,
+					dribble = dribble,
+					pass = pass,
+					rarity = templateData.Rarity or "Common",
+					image = UI[templateData.Name] or "",
+					order = (isEquipped and 0 or 10000000)
+						+ statOffset
+						+ rarityPriority
+						+ numCards,
+					equipped = isEquipped,
+					deleting = InventoryReducer.DeletedAccessories[tostring(id)] ~= nil,
+					onClick = function()
+						if InventoryReducer.DeletingAccessories then
+							if isEquipped then
+								NotificationController:Notify({
+									text = "Cannot delete equipped accessories.",
+									type = "ERROR",
+									tag = "Inventory",
+								})
+								return
+							end
+							if InventoryReducer.DeletedAccessories[tostring(id)] then
+								Store:dispatch(InventoryActions.removeDeletedAccessory(id))
+							else
+								Store:dispatch(InventoryActions.addDeletedAccessory(id))
+							end
+						end
+					end,
+				})
+			end
+		end
+	end
+
+	local columns = 5
+	local rows = math.max(1, math.ceil(numCards / columns))
+	local desiredCellHeight = 0.43
+	local desiredCellPaddingY = 0
+	local canvasScaleY =
+		math.max(1, (rows * desiredCellHeight) + ((rows - 1) * desiredCellPaddingY) + 0.04)
+
+	return Roact.createElement("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundTransparency = 1,
+		Position = UDim2.fromScale(0.5, 0.5),
+		Visible = InventoryReducer.Inventory == InventoryConstants.Accessories,
+		Size = UDim2.fromScale(1, 1),
+	}, {
+		Scroll = Roact.createElement("ScrollingFrame", {
+			CanvasSize = UDim2.fromScale(0, math.max(1, canvasScaleY)),
+			ScrollBarThickness = 8,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			Position = UDim2.fromScale(0.5, 0.559),
+			ScrollingDirection = 2,
+			ZIndex = 3,
+			BorderSizePixel = 0,
+			Size = UDim2.fromScale(0.95, 0.568),
+		}, {
+			UIPadding = Roact.createElement("UIPadding", {
+				PaddingTop = UDim.new(0, 0),
+			}),
+
+			Grid = Roact.createElement("UIGridLayout", {
+				SortOrder = 2,
+				CellSize = UDim2.fromScale(0.18, desiredCellHeight / canvasScaleY),
+				FillDirectionMaxCells = columns,
+				CellPadding = UDim2.fromScale(0.01, desiredCellPaddingY / canvasScaleY),
+				HorizontalAlignment = 0,
+			}),
+			Roact.createFragment(AccessoryCards),
+		}),
+		EmptyText = Roact.createElement("TextLabel", {
+			Visible = numCards == 0,
+			TextWrapped = true,
+			TextColor3 = Color3.fromRGB(20, 55, 88),
+			TextTransparency = 0.3,
+			Text = "You have nothing to show here yet ):",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
+			BackgroundTransparency = 1,
+			Position = UDim2.fromScale(0.5, 0.55),
+			TextSize = 14,
+			ZIndex = 2,
+			TextScaled = true,
+			Size = UDim2.fromScale(0.8, 0.2),
+		}),
+		Bottom = Roact.createElement("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			Position = UDim2.fromScale(0.5, 0.93),
+			BorderColor3 = Color3.fromHex("000000"),
+			BackgroundColor3 = Color3.fromHex("ffffff"),
+			BorderSizePixel = 0,
+			Size = UDim2.fromScale(0.9, 0.1),
+		}, {
+			UIListLayout = Roact.createElement("UIListLayout", {
+				VerticalAlignment = 0,
+				SortOrder = 2,
+				HorizontalAlignment = 0,
+				Padding = UDim.new(0.02, 0),
+				FillDirection = 0,
+			}),
+			Delete = Roact.createElement("ImageButton", {
+				LayoutOrder = 2,
+				Size = UDim2.fromScale(0.2, 1),
+				Position = UDim2.fromScale(0.5, 0.5),
+				BorderColor3 = Color3.fromHex("000000"),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BorderSizePixel = 0,
+				BackgroundColor3 = Color3.fromHex("ffffff"),
+				ZIndex = 2,
+
+				[Roact.Event.MouseButton1Down] = function()
+					Sound:PlaySound("UI_Click")
+					if InventoryReducer.DeletingAccessories then
+						local deletedCount = 0
+						for id, _ in pairs(InventoryReducer.DeletedAccessories or {}) do
+							AccessoryService:DeleteAccessory(id)
+							deletedCount += 1
+						end
+						Store:dispatch(InventoryActions.setDeletingAccessories(false))
+					else
+						Store:dispatch(InventoryActions.setDeletingAccessories(true))
+					end
+				end,
+			}, {
+				UICorner = Roact.createElement("UICorner", {
+					CornerRadius = UDim.new(0, 6),
+				}),
+				UIStroke = Roact.createElement("UIStroke", {
+					Color = Color3.fromHex("da5b5d"),
+					Thickness = 2,
+				}),
+				UIGradient = Roact.createElement("UIGradient", {
+					Color = ColorSequence.new({
+						ColorSequenceKeypoint.new(0, Color3.fromHex("ff3134")),
+						ColorSequenceKeypoint.new(1, Color3.fromHex("822b2d")),
+					}),
+					Rotation = 90,
+				}),
+				ButtonText = Roact.createElement("TextLabel", {
+					TextWrapped = true,
+					TextColor3 = Color3.fromHex("fafafa"),
+					Text = InventoryReducer.DeletingAccessories and "Confirm" or "Delete",
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
+					BackgroundTransparency = 1,
+					Position = UDim2.fromScale(0.5, 0.5),
+					TextSize = 14,
+					ZIndex = 5,
+					TextScaled = true,
+					Size = UDim2.fromScale(0.9, 0.55),
+				}),
+			}),
+			SearchBar = Roact.createElement("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.67, 0),
+				LayoutOrder = 1,
+				ZIndex = 10,
+				BackgroundColor3 = Color3.fromHex("254167"),
+				Size = UDim2.fromScale(0.78, 1),
+			}, {
+				Storage = Roact.createElement("Frame", {
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.fromScale(0.95, 0.5),
+					BackgroundTransparency = 1,
+					Size = UDim2.fromScale(0.2, 1),
+				}, {
+					Corner = Roact.createElement("UICorner", {
+						CornerRadius = UDim.new(2, 0),
+					}),
+					UIListLayout = Roact.createElement("UIListLayout", {
+						VerticalAlignment = 0,
+						SortOrder = 2,
+						HorizontalAlignment = 0,
+						Padding = UDim.new(0.02, 0),
+						FillDirection = 0,
+					}),
+					Plus = Roact.createElement("ImageButton", {
+						LayoutOrder = 3,
+						ScaleType = 3,
+						BorderColor3 = Color3.fromHex("000000"),
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						Image = "rbxassetid://98999428594161",
+						BackgroundTransparency = 1,
+						Position = UDim2.fromScale(0.983, 0.5),
+						Size = UDim2.fromScale(0.6, 0.6),
+						ImageColor3 = Color3.fromHex("c4d6ff"),
+						BorderSizePixel = 0,
+						BackgroundColor3 = Color3.fromHex("ffffff"),
+						ZIndex = 11,
+
+						[Roact.Event.MouseButton1Click] = function()
+							Sound:PlaySound("UI_Click")
+							UIController:ShowFrame({ frame = FramesConstants.Store })
+						end,
+					}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
+					Icon = Roact.createElement("ImageLabel", {
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						Image = "rbxassetid://96088986090549",
+						BackgroundTransparency = 1,
+						Position = UDim2.fromScale(0.186, 0.5),
+						LayoutOrder = 1,
+						ScaleType = 3,
+						Size = UDim2.fromScale(0.7, 0.7),
+						ZIndex = 11,
+					}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
+					AmoutText = Roact.createElement("TextLabel", {
+						LayoutOrder = 2,
+						TextWrapped = true,
+						TextColor3 = Color3.fromHex("ffffff"),
+						Text = `{totalOwned}/{InventoryReducer.MaxStored or 75}`,
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
+						BackgroundTransparency = 1,
+						Position = UDim2.fromScale(0.612, 0.5),
+						TextScaled = true,
+						TextSize = 14,
+						Size = UDim2.fromScale(0.7, 0.5),
+						ZIndex = 11,
+					}),
+				}),
+				UICorner = Roact.createElement("UICorner", {
+					CornerRadius = UDim.new(0, 6),
+				}),
+				UIStroke = Roact.createElement("UIStroke", {
+					Color = Color3.fromHex("1d243b"),
+					Thickness = 2,
+				}),
+				Icon = Roact.createElement("ImageLabel", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Image = "rbxassetid://108045196460145",
+					BackgroundTransparency = 1,
+					ImageTransparency = 0.5,
+					Position = UDim2.fromScale(0.06, 0.5),
+					ScaleType = 3,
+					Size = UDim2.fromScale(0.6, 0.6),
+					ZIndex = 11,
+				}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
+				TextBox = Roact.createElement("TextBox", {
+					TextWrapped = true,
+					TextColor3 = Color3.fromHex("ffffff"),
+					TextTransparency = 0.5,
+					Text = searchText,
+					PlaceholderColor3 = Color3.fromHex("ffffff"),
+					AnchorPoint = Vector2.new(0, 0.5),
+					FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
+					BackgroundTransparency = 1,
+					TextXAlignment = 0,
+					Position = UDim2.fromScale(0.12, 0.5),
+					PlaceholderText = "Search accessories...",
+					TextScaled = true,
+					Size = UDim2.fromScale(0.424, 0.5),
+					ZIndex = 11,
+					[Roact.Change.Text] = function(rbx)
+						setSearchText(rbx.Text)
+					end,
+				}),
+			}),
+		}),
+	})
+end
+
+Accessories = RoactHooks.new(Roact)(Accessories)
+return Accessories

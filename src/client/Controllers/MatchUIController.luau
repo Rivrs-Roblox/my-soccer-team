@@ -1,0 +1,2272 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local Packages = ReplicatedStorage:WaitForChild("Packages")
+
+local Knit = require(Packages:WaitForChild("Knit"))
+
+local MatchConstants = require(ReplicatedStorage.Shared.Data.Match.MatchConstants)
+local TeamLogoConfig = require(ReplicatedStorage.Shared.Data.TeamLogoConfig)
+local UIJuice = require(script.Parent.Parent.Helpers.UIJuice)
+
+local helpers =  ReplicatedStorage.Shared.Helpers
+local formatnumber = require(helpers.Numbers.FormatNumber)
+
+local LocalPlayer = Players.LocalPlayer
+
+local PLAYER_TEAM_NAME = "FC Rivrs"
+local PLAYER_TEAM_LOGO = "rbxassetid://81212587492189"
+local BROADCAST_HUD_ENABLED = true
+local BROADCAST_CLOCK_REAL_SECONDS_PER_MATCH_MINUTE = 5
+local BROADCAST_CLOCK_START_MINUTE = 85
+local QTE_RESULT_BANNER_HOLD = 0.7
+
+local MIDDLE_START = 0.18
+local MIDDLE_END = 0.82
+
+local EXCELLENT_CAMERA_EFFECT_DURATION = 0.95
+local EXCELLENT_CAMERA_EFFECT_FADE_IN = 0.08
+local EXCELLENT_CAMERA_EFFECT_FADE_OUT = 0.24
+local TRANSITION_OVERLAY_ZINDEX = 100000
+
+local EXCELLENT_CAMERA_EFFECT_SHAKE_CONFIG = {
+	Fast_1 = { X = 0.018, Y = 0.008, Rotation = 1.6, Speed = 18.0, Phase = 0.00 },
+	Fast_2 = { X = 0.012, Y = 0.014, Rotation = -2.4, Speed = 23.0, Phase = 1.35 },
+	Fast_3 = { X = 0.024, Y = 0.006, Rotation = 3.0, Speed = 15.5, Phase = 2.60 },
+	Default = { X = 0.014, Y = 0.010, Rotation = 1.8, Speed = 20.0, Phase = 0.75 },
+}
+
+local GREEN_WIDTH_BY_STEP = {
+	[1] = 0.22,
+	[2] = 0.18,
+	[3] = 0.14,
+	[4] = 0.115,
+	[5] = 0.10,
+}
+
+local MatchUIController = Knit.CreateController({
+	Name = "MatchUIController",
+})
+
+local function GetPingPongAlpha(elapsed, duration)
+	if duration <= 0 then
+		return 0.5
+	end
+
+	local loopValue = (elapsed / duration) % 2
+	if loopValue > 1 then
+		return 2 - loopValue
+	end
+
+	return loopValue
+end
+
+local function Clamp(value, minValue, maxValue)
+	return math.max(minValue, math.min(maxValue, value))
+end
+
+local function RaiseGuiObjectTreeZIndex(root: Instance?, zIndex: number)
+	if not root then
+		return
+	end
+
+	if root:IsA("GuiObject") then
+		root.ZIndex = zIndex
+	end
+
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("GuiObject") then
+			descendant.ZIndex = zIndex + 1
+		end
+	end
+end
+
+local function ConfigureQteInputLayer(layer: Instance?)
+	if not layer then
+		return
+	end
+
+	if layer:IsA("GuiObject") then
+		layer.BackgroundTransparency = 1
+		layer.BorderSizePixel = 0
+		layer.Active = false
+	end
+
+	if layer:IsA("GuiButton") then
+		layer.AutoButtonColor = false
+		layer.Selectable = false
+	end
+end
+
+local function SetGuiObjectBackgroundTransparency(instance: Instance?, transparency: number)
+	if instance and instance:IsA("GuiObject") then
+		instance.BackgroundTransparency = transparency
+		instance.BorderSizePixel = 0
+	end
+end
+
+local function SetTextVisible(instance: Instance?)
+	if instance and (instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox")) then
+		instance.TextTransparency = 0
+	end
+end
+
+local function ConfigureQteVisualTree(layer: Instance?)
+	if not layer then
+		return
+	end
+
+	ConfigureQteInputLayer(layer)
+
+	local barBack = layer:FindFirstChild("BarBack")
+	SetGuiObjectBackgroundTransparency(barBack, 1)
+
+	for _, name in ipairs({ "RedLeft", "YellowLeft", "Green", "YellowRight", "RedRight" }) do
+		local segment = barBack and barBack:FindFirstChild(name)
+		SetGuiObjectBackgroundTransparency(segment, 0)
+	end
+
+	SetTextVisible(layer:FindFirstChild("StepLabel"))
+	SetTextVisible(layer:FindFirstChild("ActionLabel"))
+	SetTextVisible(layer:FindFirstChild("HintLabel"))
+	SetTextVisible(layer:FindFirstChild("TargetLabel"))
+end
+
+local function NormalizeAssetId(value)
+	if type(value) == "number" then
+		return "rbxassetid://" .. tostring(value)
+	end
+
+	if type(value) ~= "string" or value == "" then
+		return ""
+	end
+
+	if string.find(value, "rbxassetid://", 1, true) then
+		return value
+	end
+
+	if tonumber(value) ~= nil then
+		return "rbxassetid://" .. value
+	end
+
+	return value
+end
+
+local function GetIntroDataFromPayload(payload)
+	payload = typeof(payload) == "table" and payload or {}
+	local introData = payload.IntroData
+	if typeof(introData) == "table" then
+		return introData
+	end
+
+	local tournament = payload.Tournament
+	if typeof(tournament) == "table" and typeof(tournament.Intro) == "table" then
+		return tournament.Intro
+	end
+
+	return {}
+end
+
+local function ResolveTeamCode(areaId, teamName, fallback)
+	if TeamLogoConfig and TeamLogoConfig.GetTeamShortName then
+		local code = TeamLogoConfig.GetTeamShortName(tostring(areaId or "Area01"), tostring(teamName or ""))
+		if type(code) == "string" and code ~= "" then
+			return code
+		end
+	end
+
+	return tostring(fallback or "TBD")
+end
+
+local function ResolveTeamLogo(areaId, teamName, providedLogo, isPlayer)
+	local logo = NormalizeAssetId(providedLogo)
+	local isPlaceholder = logo == "" or logo == "rbxassetid://0" or string.find(logo, "000000", 1, true)
+	if not isPlaceholder then
+		return logo
+	end
+
+	if isPlayer then
+		if TeamLogoConfig and TeamLogoConfig.GetPlayerLogo then
+			return TeamLogoConfig.GetPlayerLogo()
+		end
+		return PLAYER_TEAM_LOGO
+	end
+
+	if TeamLogoConfig and TeamLogoConfig.GetTeamLogo then
+		local configLogo = TeamLogoConfig.GetTeamLogo(tostring(areaId or "Area01"), tostring(teamName or ""))
+		if type(configLogo) == "string" and configLogo ~= "" then
+			return configLogo
+		end
+	end
+
+	return logo
+end
+
+local function FormatBroadcastClock(minute, second)
+	return string.format("%02d:%02d", tonumber(minute) or 0, tonumber(second) or 0)
+end
+
+local function SetImageIfFound(instance, imageId)
+	local image = NormalizeAssetId(imageId)
+	if image == "" then
+		return
+	end
+
+	if instance and (instance:IsA("ImageLabel") or instance:IsA("ImageButton")) then
+		instance.Image = image
+		instance.Visible = true
+		instance.ImageTransparency = 0
+	end
+end
+
+local function ApplyBasicStroke(root, color, thickness, transparency)
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "Stroke"
+	stroke.Color = color
+	stroke.Thickness = thickness
+	stroke.Transparency = transparency or 0
+	stroke.Parent = root
+	return stroke
+end
+
+local function ApplyBasicCorner(root, radius)
+	local corner = Instance.new("UICorner")
+	corner.Name = "Corner"
+	corner.CornerRadius = radius
+	corner.Parent = root
+	return corner
+end
+
+local function FindDescendantByName(root, name)
+	if not root then
+		return nil
+	end
+
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant.Name == name then
+			return descendant
+		end
+	end
+
+	return nil
+end
+
+local function FindFirstTextLabel(root, names)
+	if not root then
+		return nil
+	end
+
+	for _, name in ipairs(names) do
+		local direct = root:FindFirstChild(name, true)
+		if direct and direct:IsA("TextLabel") then
+			return direct
+		end
+	end
+
+	return nil
+end
+
+local function FindFirstImageObject(root, names)
+	if not root then
+		return nil
+	end
+
+	for _, name in ipairs(names) do
+		local direct = root:FindFirstChild(name, true)
+		if direct and (direct:IsA("ImageLabel") or direct:IsA("ImageButton")) then
+			return direct
+		end
+	end
+
+	return nil
+end
+
+local function SetGuiVisible(instance, visible)
+	if instance and instance:IsA("GuiObject") then
+		instance.Visible = visible
+	end
+end
+
+local function SetTextIfFound(instance, text)
+	if instance and instance:IsA("TextLabel") then
+		instance.Text = tostring(text or "")
+		instance.Visible = true
+		instance.TextTransparency = 0
+	end
+end
+
+local function SetImageFromSource(target, source)
+	if not (target and source) then
+		return
+	end
+
+	if not (target:IsA("ImageLabel") or target:IsA("ImageButton")) then
+		return
+	end
+
+	if not (source:IsA("ImageLabel") or source:IsA("ImageButton")) then
+		return
+	end
+
+	if source.Image ~= "" then
+		target.Image = source.Image
+		target.Visible = true
+		target.ImageTransparency = 0
+	end
+end
+
+local function IsExcellentTier(qteTier)
+	local tierName = string.upper(tostring(qteTier or ""))
+	return tierName == "GREEN" or tierName == "PERFECT" or tierName == "EXCELLENT"
+end
+
+local function IsShootAction(actionName)
+	return string.lower(tostring(actionName or "")) == "shoot"
+end
+
+local function FormatQteMultiplier(multiplier)
+	local value = tonumber(multiplier) or 1
+	if math.abs(value - math.floor(value + 0.5)) < 0.001 then
+		return string.format("x%d", math.floor(value + 0.5))
+	end
+	return string.format("x%.1f", value)
+end
+
+local function ResolveQteTierColor(qteTier)
+	local tierName = string.lower(tostring(qteTier or ""))
+	if tierName == "green" or tierName == "perfect" or tierName == "excellent" then
+		return Color3.fromRGB(106, 255, 138)
+	elseif tierName == "red" or tierName == "miss" or tierName == "failed" then
+		return Color3.fromRGB(255, 110, 110)
+	end
+
+	return Color3.fromRGB(255, 238, 45)
+end
+
+local function SetImageTransparencySafe(guiObject, transparency)
+	pcall(function()
+		guiObject.ImageTransparency = transparency
+	end)
+end
+
+local function GetImageTransparencySafe(guiObject)
+	local ok, value = pcall(function()
+		return guiObject.ImageTransparency
+	end)
+	if ok and typeof(value) == "number" then
+		return value
+	end
+	return nil
+end
+
+local function ReadNumericText(label, fallback)
+	if label and label:IsA("TextLabel") then
+		local raw = tostring(label.Text or "")
+		local numberText = string.match(raw, "%-?%d+%.?%d*")
+		local value = tonumber(numberText)
+		if value ~= nil then
+			return value
+		end
+	end
+
+	return tonumber(fallback) or 0
+end
+
+local function GetPayloadWins(payload)
+	payload = typeof(payload) == "table" and payload or {}
+
+	local candidates = {
+		payload.AwardedWins,
+		payload.MatchRewardPreviewWins,
+		payload.RewardWins,
+		payload.WinsReward,
+		payload.WinReward,
+		payload.RewardAmount,
+	}
+
+	for _, value in ipairs(candidates) do
+		local numericValue = tonumber(value)
+		if numericValue and numericValue > 0 then
+			return numericValue
+		end
+	end
+
+	return 0
+end
+
+local function GetPayloadSessionId(payload)
+	if typeof(payload) ~= "table" then
+		return nil
+	end
+
+	local sessionId = payload.SessionId
+	if sessionId == nil then
+		return nil
+	end
+
+	return tostring(sessionId)
+end
+
+function MatchUIController:_buildRandomQteConfig(stepIndex)
+	local greenWidth = GREEN_WIDTH_BY_STEP[tonumber(stepIndex) or 1] or 0.14
+	local minStart = MIDDLE_START
+	local maxStart = MIDDLE_END - greenWidth
+
+	local rng = Random.new(math.floor(os.clock() * 1000000) + (tonumber(stepIndex) or 0) * 97)
+	local greenStart = rng:NextNumber(minStart, maxStart)
+	local greenEnd = greenStart + greenWidth
+
+	return {
+		RedLeft = { Position = 0.00, Width = MIDDLE_START },
+		YellowLeft = { Position = MIDDLE_START, Width = greenStart - MIDDLE_START },
+		Green = { Position = greenStart, Width = greenWidth },
+		YellowRight = { Position = greenEnd, Width = MIDDLE_END - greenEnd },
+		RedRight = { Position = MIDDLE_END, Width = 1 - MIDDLE_END },
+		GreenStart = greenStart,
+		GreenEnd = greenEnd,
+	}
+end
+
+function MatchUIController:_resolveTierFromAlpha(alpha)
+	local layout = self._currentQteLayout
+	if not layout then
+		return "Yellow"
+	end
+
+	if alpha >= layout.GreenStart and alpha <= layout.GreenEnd then
+		return "Green"
+	end
+
+	if alpha >= MIDDLE_START and alpha <= MIDDLE_END then
+		return "Yellow"
+	end
+
+	return "Red"
+end
+
+function MatchUIController:_getPlayerGui()
+	return LocalPlayer:WaitForChild("PlayerGui", 10)
+end
+
+function MatchUIController:_ensureGui()
+	if self._guiInitialized then
+		return
+	end
+
+	local playerGui = self:_getPlayerGui()
+	if not playerGui then
+		return
+	end
+
+	local matchGui = playerGui:WaitForChild("RoactTree", 10)
+	if not matchGui then
+		warn("[MatchUIController] Could not find RoactTree in PlayerGui")
+		return
+	end
+
+	self._matchGui = matchGui
+	self._matchGui.Enabled = true
+
+	self._blackoutFrame = matchGui:WaitForChild("Blackout")
+	self._statusTextLabel = self._blackoutFrame:WaitForChild("StatusText")
+	RaiseGuiObjectTreeZIndex(self._blackoutFrame, TRANSITION_OVERLAY_ZINDEX)
+
+	self._centerPopupLabel = matchGui:WaitForChild("CenterPopup")
+	self._centerPopupLabel.Visible = false
+	self._centerPopupLabel.Text = ""
+	-- Keep action result text below the TV scoreboard so it does not stack with
+	-- the broadcast scoreboard or action banner.
+	if self._centerPopupLabel:IsA("GuiObject") then
+		self._centerPopupLabel.AnchorPoint = Vector2.new(0.5, 0)
+		self._centerPopupLabel.Position = UDim2.fromScale(0.5, 0.185)
+		self._centerPopupLabel.Size = UDim2.fromScale(0.58, 0.075)
+		self._centerPopupLabel.ZIndex = 730
+	end
+
+	self._resultPopupGroup = matchGui:WaitForChild("ResultPopup")
+	self._resultPopupGroup.Visible = false
+	self._resultLoseLabel = self._resultPopupGroup:FindFirstChild("Lose") or self._resultPopupGroup:FindFirstChild("Title")
+	self._resultWinLabel = self._resultPopupGroup:FindFirstChild("Win") or self._resultPopupGroup:FindFirstChild("Title")
+	self._resultRewardsLabel = self._resultPopupGroup:WaitForChild("Rewards")
+
+	self._comparePillFrame = matchGui:WaitForChild("ComparePill")
+	self._compareLabel = self._comparePillFrame:WaitForChild("Label")
+
+	self._exitButton = matchGui:WaitForChild("ExitButton")
+	
+	self._goalsPillFrame = matchGui:WaitForChild("GoalsPill")
+	self._goalsLabel = self._goalsPillFrame:WaitForChild("GoalsLabel")
+
+	self._qteLayerButton = matchGui:WaitForChild("QteLayer")
+	ConfigureQteVisualTree(self._qteLayerButton)
+	self._qteLayerButton.Visible = false
+	self._qteStepLabel = self._qteLayerButton:WaitForChild("StepLabel")
+	self._qteActionLabel = self._qteLayerButton:WaitForChild("ActionLabel")
+	self._qteTargetLabel = self._qteLayerButton:WaitForChild("TargetLabel")
+
+	local barBack = self._qteLayerButton:WaitForChild("BarBack")
+	self._qteRedLeft = barBack:WaitForChild("RedLeft")
+	self._qteYellowLeft = barBack:WaitForChild("YellowLeft")
+	self._qteGreen = barBack:WaitForChild("Green")
+	self._qteYellowRight = barBack:WaitForChild("YellowRight")
+	self._qteRedRight = barBack:WaitForChild("RedRight")
+	self._qtePointer = barBack:WaitForChild("Pointer")
+
+	self._exitButton.Activated:Connect(function()
+		if self._exitCallback then
+			self._exitCallback()
+		end
+	end)
+
+	
+
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if not self._activeQte or self._activeQte.Locked then
+			return
+		end
+
+		local isPointerSubmit = input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		local isKeyboardSubmit = input.KeyCode == Enum.KeyCode.Space
+
+		if isPointerSubmit or isKeyboardSubmit then
+			if gameProcessed then
+				if not isPointerSubmit then
+					return
+				end
+
+				local exitButton = self._exitButton
+				if exitButton and exitButton.Visible then
+					local pos = input.Position
+					local absPos = exitButton.AbsolutePosition
+					local absSize = exitButton.AbsoluteSize
+					if pos.X >= absPos.X and pos.X <= absPos.X + absSize.X and
+					   pos.Y >= absPos.Y and pos.Y <= absPos.Y + absSize.Y then
+						return
+					end
+				end
+			end
+
+			if self._qteConfirmCallback then
+				self._qteConfirmCallback()
+			end
+		end
+	end)
+
+	self._guiInitialized = true
+end
+
+function MatchUIController:_getBlackoutFrame()
+	return self._blackoutFrame
+end
+
+function MatchUIController:_getStatusLabel()
+	return self._statusTextLabel
+end
+
+function MatchUIController:_getExitButton()
+	return self._exitButton
+end
+
+function MatchUIController:_getGoalsPill()
+	return self._goalsPillFrame
+end
+
+function MatchUIController:_getGoalsLabel()
+	return self._goalsLabel
+end
+
+function MatchUIController:_getCenterPopup()
+	return self._centerPopupLabel
+end
+
+function MatchUIController:_getComparePill()
+	return self._comparePillFrame
+end
+
+function MatchUIController:_getCompareLabel()
+	return self._compareLabel
+end
+
+function MatchUIController:_getQteLayer()
+	return self._qteLayerButton
+end
+
+function MatchUIController:_raiseTransitionOverlay()
+	RaiseGuiObjectTreeZIndex(self:_getBlackoutFrame(), TRANSITION_OVERLAY_ZINDEX)
+end
+
+function MatchUIController:_suppressMatchHudForTransition()
+	local qteLayer = self:_getQteLayer()
+	if qteLayer then
+		qteLayer.Visible = false
+	end
+
+	self._activeQte = nil
+	self._currentCursorAlpha = 0.5
+	self._currentQteLayout = nil
+	self:SetQteConfirmCallback(nil)
+
+	local resultPopup = self._resultPopupGroup
+	if resultPopup then
+		resultPopup.Visible = false
+	end
+
+	local centerPopup = self:_getCenterPopup()
+	if centerPopup then
+		centerPopup.Visible = false
+		centerPopup.Text = ""
+	end
+
+	if self.HideActionBannerNow then
+		self:HideActionBannerNow()
+	elseif self.HideActionBanner then
+		self:HideActionBanner(0)
+	end
+end
+
+function MatchUIController:_getQteStepLabel()
+	return self._qteStepLabel
+end
+
+function MatchUIController:_getQteActionLabel()
+	return self._qteActionLabel
+end
+
+function MatchUIController:_getQteTargetLabel()
+	return self._qteTargetLabel
+end
+
+function MatchUIController:_getQtePointer()
+	return self._qtePointer
+end
+
+function MatchUIController:_getQteRedLeft()
+	return self._qteRedLeft
+end
+
+function MatchUIController:_getQteYellowLeft()
+	return self._qteYellowLeft
+end
+
+function MatchUIController:_getQteGreen()
+	return self._qteGreen
+end
+
+function MatchUIController:_getQteYellowRight()
+	return self._qteYellowRight
+end
+
+function MatchUIController:_getQteRedRight()
+	return self._qteRedRight
+end
+
+function MatchUIController:_applyQteLayout(layout)
+	local redLeft = self:_getQteRedLeft()
+	local yellowLeft = self:_getQteYellowLeft()
+	local green = self:_getQteGreen()
+	local yellowRight = self:_getQteYellowRight()
+	local redRight = self:_getQteRedRight()
+
+	if redLeft then
+		redLeft.Position = UDim2.fromScale(layout.RedLeft.Position, 0)
+		redLeft.Size = UDim2.fromScale(layout.RedLeft.Width, 1)
+	end
+
+	if yellowLeft then
+		yellowLeft.Position = UDim2.fromScale(layout.YellowLeft.Position, 0)
+		yellowLeft.Size = UDim2.fromScale(layout.YellowLeft.Width, 1)
+	end
+
+	if green then
+		green.Position = UDim2.fromScale(layout.Green.Position, 0)
+		green.Size = UDim2.fromScale(layout.Green.Width, 1)
+	end
+
+	if yellowRight then
+		yellowRight.Position = UDim2.fromScale(layout.YellowRight.Position, 0)
+		yellowRight.Size = UDim2.fromScale(layout.YellowRight.Width, 1)
+	end
+
+	if redRight then
+		redRight.Position = UDim2.fromScale(layout.RedRight.Position, 0)
+		redRight.Size = UDim2.fromScale(layout.RedRight.Width, 1)
+	end
+end
+
+function MatchUIController:_setPointerAlpha(alpha)
+	self._currentCursorAlpha = Clamp(alpha, 0, 1)
+
+	local pointer = self:_getQtePointer()
+	if pointer then
+		pointer.Position = UDim2.fromScale(self._currentCursorAlpha, 0.5)
+	end
+end
+
+function MatchUIController:_startCursorLoop()
+	if self._cursorConnection then
+		return
+	end
+
+	self._cursorConnection = RunService.RenderStepped:Connect(function()
+		if not self._activeQte then
+			return
+		end
+
+		if self._activeQte.Locked then
+			return
+		end
+
+		local elapsed = os.clock() - self._activeQte.StartedAt
+		local alpha = GetPingPongAlpha(elapsed, MatchConstants.QTE_CURSOR_TRAVEL_TIME)
+		self:_setPointerAlpha(alpha)
+	end)
+end
+
+function MatchUIController:_stopCursorLoop()
+	if not self._cursorConnection then
+		return
+	end
+
+	self._cursorConnection:Disconnect()
+	self._cursorConnection = nil
+end
+
+function MatchUIController:_resolveCameraEffectRefs()
+	local playerGui = self:_getPlayerGui()
+	if not playerGui then
+		return nil
+	end
+
+	local cameraEffect = playerGui:FindFirstChild("CameraEffect")
+	if not cameraEffect then
+		return nil
+	end
+
+	local fastImages = {}
+	for _, name in ipairs({ "Fast_1", "Fast_2", "Fast_3" }) do
+		local fast = cameraEffect:FindFirstChild(name, true)
+		if fast and fast:IsA("GuiObject") then
+			table.insert(fastImages, fast)
+		end
+	end
+
+	if #fastImages == 0 then
+		return nil
+	end
+
+	return {
+		Root = cameraEffect,
+		FastImages = fastImages,
+	}
+end
+
+function MatchUIController:_stopExcellentCameraEffect()
+	self._excellentEffectToken = (self._excellentEffectToken or 0) + 1
+
+	for _, tween in ipairs(self._excellentEffectTweens or {}) do
+		pcall(function()
+			tween:Cancel()
+		end)
+	end
+	self._excellentEffectTweens = {}
+
+	if self._excellentEffectConnection then
+		self._excellentEffectConnection:Disconnect()
+		self._excellentEffectConnection = nil
+	end
+
+	local records = self._excellentEffectRecords
+	if records then
+		for guiObject, record in pairs(records) do
+			if guiObject and guiObject.Parent then
+				guiObject.Visible = record.Visible
+				guiObject.Position = record.Position
+				guiObject.Rotation = record.Rotation
+				if record.ImageTransparency ~= nil then
+					SetImageTransparencySafe(guiObject, record.ImageTransparency)
+				end
+			end
+		end
+	end
+	self._excellentEffectRecords = nil
+
+	local root = self._excellentEffectRoot
+	if root and root.Parent then
+		local rootVisible = self._excellentEffectRootVisible
+		local rootEnabled = self._excellentEffectRootEnabled
+		if root:IsA("ScreenGui") then
+			if rootEnabled ~= nil then
+				root.Enabled = rootEnabled
+			end
+		elseif root:IsA("GuiObject") then
+			if rootVisible ~= nil then
+				root.Visible = rootVisible
+			end
+		end
+	end
+	self._excellentEffectRoot = nil
+	self._excellentEffectRootVisible = nil
+	self._excellentEffectRootEnabled = nil
+end
+
+function MatchUIController:_playExcellentCameraEffect(options)
+	self:_ensureGui()
+	self:_stopExcellentCameraEffect()
+
+	local refs = self:_resolveCameraEffectRefs()
+	if not refs then
+		return
+	end
+
+	options = typeof(options) == "table" and options or {}
+	local duration = math.max(tonumber(options.Duration) or EXCELLENT_CAMERA_EFFECT_DURATION, 0.25)
+	local fadeOutDelay = math.max(duration - EXCELLENT_CAMERA_EFFECT_FADE_OUT, 0.05)
+
+	self._excellentEffectToken = (self._excellentEffectToken or 0) + 1
+	local token = self._excellentEffectToken
+	self._excellentEffectRoot = refs.Root
+	self._excellentEffectTweens = {}
+	self._excellentEffectRecords = {}
+
+	if refs.Root:IsA("ScreenGui") then
+		self._excellentEffectRootEnabled = refs.Root.Enabled
+		refs.Root.Enabled = true
+		pcall(function()
+			refs.Root.DisplayOrder = math.max(refs.Root.DisplayOrder, 640)
+		end)
+	elseif refs.Root:IsA("GuiObject") then
+		self._excellentEffectRootVisible = refs.Root.Visible
+		refs.Root.Visible = true
+	end
+
+	local activeImages = {}
+	for index, fast in ipairs(refs.FastImages) do
+		self._excellentEffectRecords[fast] = {
+			Visible = fast.Visible,
+			Position = fast.Position,
+			Rotation = fast.Rotation,
+			ImageTransparency = GetImageTransparencySafe(fast),
+		}
+
+		fast.Visible = true
+		fast.ZIndex = math.max(fast.ZIndex, 640)
+		SetImageTransparencySafe(fast, 1)
+
+		local fadeIn = TweenService:Create(
+			fast,
+			TweenInfo.new(EXCELLENT_CAMERA_EFFECT_FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ ImageTransparency = 0.02 }
+		)
+		table.insert(self._excellentEffectTweens, fadeIn)
+		fadeIn:Play()
+
+		local config = EXCELLENT_CAMERA_EFFECT_SHAKE_CONFIG[fast.Name]
+			or EXCELLENT_CAMERA_EFFECT_SHAKE_CONFIG.Default
+		activeImages[#activeImages + 1] = {
+			Gui = fast,
+			BasePosition = fast.Position,
+			BaseRotation = fast.Rotation,
+			Config = config,
+			Index = index,
+		}
+
+		task.delay(fadeOutDelay, function()
+			if token ~= self._excellentEffectToken or not fast.Parent then
+				return
+			end
+
+			local fadeOut = TweenService:Create(
+				fast,
+				TweenInfo.new(EXCELLENT_CAMERA_EFFECT_FADE_OUT, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				{ ImageTransparency = 1 }
+			)
+			table.insert(self._excellentEffectTweens, fadeOut)
+			fadeOut:Play()
+		end)
+	end
+
+	local startedAt = os.clock()
+	self._excellentEffectConnection = RunService.RenderStepped:Connect(function()
+		if token ~= self._excellentEffectToken then
+			return
+		end
+
+		local elapsed = os.clock() - startedAt
+		local lifeAlpha = math.clamp(elapsed / duration, 0, 1)
+		local strength = math.sin(math.pi * lifeAlpha)
+
+		for _, imageData in ipairs(activeImages) do
+			local gui = imageData.Gui
+			if gui and gui.Parent then
+				local config = imageData.Config
+				local t = elapsed * config.Speed + config.Phase
+				local x = math.sin(t) * config.X * strength
+				local y = math.cos(t * 1.31) * config.Y * strength
+				local rotation = math.sin(t * 1.17) * config.Rotation * strength
+
+				gui.Position = imageData.BasePosition + UDim2.fromScale(x, y)
+				gui.Rotation = imageData.BaseRotation + rotation
+			end
+		end
+	end)
+
+	task.delay(duration, function()
+		if token ~= self._excellentEffectToken then
+			return
+		end
+
+		self:_stopExcellentCameraEffect()
+	end)
+end
+
+function MatchUIController:PlayExcellentSpeedEffect(options)
+	self:_playExcellentCameraEffect(options)
+end
+
+function MatchUIController:StopExcellentSpeedEffect()
+	self:_stopExcellentCameraEffect()
+end
+
+function MatchUIController:_showCenterPopup(text, color, duration)
+	self:_ensureGui()
+
+	self._centerPopupToken += 1
+	local myToken = self._centerPopupToken
+
+	local popup = self:_getCenterPopup()
+	if not popup then
+		return
+	end
+
+	if text == nil or text == "" then
+		local oldText = popup.Text
+		if oldText == "" or not popup.Visible then
+			popup.Visible = false
+			popup.Text = ""
+			UIJuice.Cancel(popup)
+			return
+		end
+
+		UIJuice.PopOut(popup, {
+			Duration = 0.10,
+			EndScale = 0.78,
+		}, function()
+			if myToken ~= self._centerPopupToken then
+				return
+			end
+
+			popup.Text = ""
+		end)
+		return
+	end
+
+	local popupColor = color or Color3.fromRGB(255, 255, 255)
+	popup.Text = text
+	popup.TextColor3 = popupColor
+	popup.TextStrokeColor3 = Color3.fromRGB(12, 18, 40)
+	popup.TextStrokeTransparency = 0.12
+	popup.Visible = true
+
+	-- Some artist labels contain UIGradient/UIStroke descendants. Force them to
+	-- follow the result color so SUCCESS does not stay dark green/purple.
+	for _, descendant in ipairs(popup:GetDescendants()) do
+		if descendant:IsA("UIGradient") then
+			descendant.Color = ColorSequence.new(popupColor)
+		elseif descendant:IsA("UIStroke") then
+			descendant.Color = Color3.fromRGB(12, 18, 40)
+			descendant.Transparency = 0.12
+		end
+	end
+
+	UIJuice.PopIn(popup, {
+		StartScale = 0.68,
+		OvershootScale = 1.12,
+		Duration = 0.15,
+		SettleDuration = 0.16,
+	})
+
+	task.delay(duration or 0.9, function()
+		if myToken ~= self._centerPopupToken then
+			return
+		end
+
+		if popup then
+			UIJuice.PopOut(popup, {
+				Duration = 0.12,
+				EndScale = 0.80,
+			}, function()
+				if myToken ~= self._centerPopupToken then
+					return
+				end
+
+				popup.Text = ""
+			end)
+		end
+	end)
+end
+
+
+function MatchUIController:_newBroadcastText(parent, name, text, size, position, anchorPoint, font)
+	local label = Instance.new("TextLabel")
+	label.Name = name
+	label.BackgroundTransparency = 1
+	label.Text = text or ""
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	label.TextStrokeTransparency = 0.35
+	label.Font = font or Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.Position = position or UDim2.fromScale(0, 0)
+	label.AnchorPoint = anchorPoint or Vector2.zero
+	label.Size = size or UDim2.fromScale(1, 1)
+	label.ZIndex = 710
+	label.Parent = parent
+	return label
+end
+
+function MatchUIController:_newBroadcastLogo(parent, name, position, anchorPoint)
+	local image = Instance.new("ImageLabel")
+	image.Name = name
+	image.BackgroundTransparency = 1
+	image.ScaleType = Enum.ScaleType.Fit
+	image.Position = position
+	image.AnchorPoint = anchorPoint or Vector2.new(0.5, 0.5)
+	image.Size = UDim2.fromOffset(32, 32)
+	image.ZIndex = 710
+	image.Parent = parent
+	return image
+end
+
+function MatchUIController:_ensureBroadcastHud()
+	if self._broadcastHudRoot and self._broadcastHudRoot.Parent then
+		return
+	end
+
+	self:_ensureGui()
+	if not self._matchGui then
+		return
+	end
+
+	local root = Instance.new("Frame")
+	root.Name = "__MatchBroadcastHud"
+	root.BackgroundTransparency = 1
+	root.BorderSizePixel = 0
+	root.Position = UDim2.fromScale(0, 0)
+	root.Size = UDim2.fromScale(1, 1)
+	root.Visible = false
+	root.ZIndex = 690
+	root.Parent = self._matchGui
+
+	local scoreboardContainer = Instance.new("Frame")
+	scoreboardContainer.Name = "ScoreboardContainer"
+	scoreboardContainer.AnchorPoint = Vector2.new(0.5, 0)
+	scoreboardContainer.Position = UDim2.new(0.5, 0, 0, 12)
+	scoreboardContainer.Size = UDim2.fromOffset(424, 42)
+	scoreboardContainer.BackgroundTransparency = 1
+	scoreboardContainer.BorderSizePixel = 0
+	scoreboardContainer.ZIndex = 700
+	scoreboardContainer.Parent = root
+
+	local responsiveScale = Instance.new("UIScale")
+	responsiveScale.Name = "__MatchResponsiveScale"
+	responsiveScale.Scale = 1
+	responsiveScale.Parent = scoreboardContainer
+	self._broadcastScoreboardScale = responsiveScale
+
+	local scoreboard = Instance.new("Frame")
+	scoreboard.Name = "Scoreboard"
+	scoreboard.AnchorPoint = Vector2.new(0, 0)
+	scoreboard.Position = UDim2.new(0, 0, 0, 0)
+	scoreboard.Size = UDim2.fromOffset(340, 42)
+	scoreboard.BackgroundColor3 = Color3.fromRGB(14, 23, 46)
+	scoreboard.BackgroundTransparency = 0.08
+	scoreboard.BorderSizePixel = 0
+	scoreboard.ZIndex = 700
+	scoreboard.Parent = scoreboardContainer
+	ApplyBasicCorner(scoreboard, UDim.new(0, 8))
+	ApplyBasicStroke(scoreboard, Color3.fromRGB(245, 245, 245), 2, 0.08)
+
+	local clock = Instance.new("Frame")
+	clock.Name = "ClockPanel"
+	clock.AnchorPoint = Vector2.new(0, 0)
+	clock.Position = UDim2.new(1, 6, 0, 0)
+	clock.Size = UDim2.fromOffset(78, 42)
+	clock.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
+	clock.BackgroundTransparency = 0.05
+	clock.BorderSizePixel = 0
+	clock.ZIndex = 705
+	clock.Parent = scoreboard
+	ApplyBasicCorner(clock, UDim.new(0, 8))
+	ApplyBasicStroke(clock, Color3.fromRGB(14, 23, 46), 2, 0.1)
+
+	local actionBannerContainer = Instance.new("Frame")
+	actionBannerContainer.Name = "ActionBannerContainer"
+	actionBannerContainer.AnchorPoint = Vector2.new(0.5, 0)
+	actionBannerContainer.Position = UDim2.fromScale(0.5, 0.19)
+	actionBannerContainer.Size = UDim2.fromOffset(500, 46)
+	actionBannerContainer.BackgroundTransparency = 1
+	actionBannerContainer.BorderSizePixel = 0
+	actionBannerContainer.ZIndex = 704
+	actionBannerContainer.Parent = root
+
+	local actionBannerScale = Instance.new("UIScale")
+	actionBannerScale.Name = "__MatchActionBannerScale"
+	actionBannerScale.Scale = 1
+	actionBannerScale.Parent = actionBannerContainer
+	self._broadcastActionBannerScale = actionBannerScale
+
+	local actionBanner = Instance.new("Frame")
+	actionBanner.Name = "ActionBanner"
+	actionBanner.AnchorPoint = Vector2.new(0.5, 0.5)
+	actionBanner.Position = UDim2.fromScale(0.5, 0.5)
+	actionBanner.Size = UDim2.fromOffset(500, 44)
+	actionBanner.BackgroundColor3 = Color3.fromRGB(9, 48, 92)
+	actionBanner.BackgroundTransparency = 0.08
+	actionBanner.BorderSizePixel = 0
+	actionBanner.Visible = false
+	actionBanner.ZIndex = 704
+	actionBanner.Parent = actionBannerContainer
+	ApplyBasicCorner(actionBanner, UDim.new(0, 10))	
+	ApplyBasicStroke(actionBanner, Color3.fromRGB(255, 255, 255), 2, 0.12)
+
+	self._broadcastHudRoot = root
+	self._broadcastScoreboard = scoreboard
+	self._broadcastClockPanel = clock
+	self._broadcastActionBanner = actionBanner
+
+	self._broadcastHomeLogo = self:_newBroadcastLogo(scoreboard, "HomeLogo", UDim2.fromScale(0.09, 0.5))
+	self._broadcastAwayLogo = self:_newBroadcastLogo(scoreboard, "AwayLogo", UDim2.fromScale(0.91, 0.5))
+	self._broadcastHomeCode = self:_newBroadcastText(scoreboard, "HomeCode", "RIV", UDim2.fromOffset(60, 28), UDim2.fromScale(0.22, 0.5), Vector2.new(0.5, 0.5))
+	self._broadcastAwayCode = self:_newBroadcastText(scoreboard, "AwayCode", "OPP", UDim2.fromOffset(60, 28), UDim2.fromScale(0.78, 0.5), Vector2.new(0.5, 0.5))
+	self._broadcastHomeScore = self:_newBroadcastText(scoreboard, "HomeScore", "0", UDim2.fromOffset(30, 36), UDim2.fromScale(0.41, 0.5), Vector2.new(0.5, 0.5))
+	self._broadcastDash = self:_newBroadcastText(scoreboard, "Dash", "-", UDim2.fromOffset(20, 36), UDim2.fromScale(0.50, 0.5), Vector2.new(0.5, 0.5))
+	self._broadcastAwayScore = self:_newBroadcastText(scoreboard, "AwayScore", "0", UDim2.fromOffset(30, 36), UDim2.fromScale(0.59, 0.5), Vector2.new(0.5, 0.5))
+	self._broadcastClockText = self:_newBroadcastText(clock, "ClockText", "85:00", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), Vector2.new(0, 0), Enum.Font.GothamBold)
+	self._broadcastClockText.TextColor3 = Color3.fromRGB(14, 23, 46)
+	self._broadcastClockText.TextStrokeTransparency = 1
+	self._broadcastActionText = self:_newBroadcastText(actionBanner, "ActionText", "PASS", UDim2.fromScale(0.36, 1), UDim2.fromScale(0.03, 0), Vector2.new(0, 0), Enum.Font.GothamBlack)
+	self._broadcastActionText.TextXAlignment = Enum.TextXAlignment.Left
+	self._broadcastStatText = self:_newBroadcastText(actionBanner, "StatText", "RIV 0 vs OPP 0", UDim2.fromScale(0.58, 1), UDim2.fromScale(0.40, 0), Vector2.new(0, 0), Enum.Font.GothamBold)
+	self._broadcastStatText.TextXAlignment = Enum.TextXAlignment.Right
+
+	self:_updateAllResponsiveScales()
+end
+
+local function GetMatchHudScale(viewportSize)
+	local scale = viewportSize.Y / 720
+	return math.clamp(scale, 0.45, 1.6)
+end
+
+function MatchUIController:_updateAllResponsiveScales()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+
+	local viewportSize = camera.ViewportSize
+	local scaleFactor = GetMatchHudScale(viewportSize)
+
+	if self._broadcastScoreboardScale then
+		self._broadcastScoreboardScale.Scale = scaleFactor
+	end
+
+	if self._broadcastActionBannerScale then
+		self._broadcastActionBannerScale.Scale = scaleFactor
+	end
+end
+
+function MatchUIController:_advanceBroadcastClock(now)
+	local state = self._broadcastClockState
+	if not state then
+		return nil
+	end
+
+	local currentTime = tonumber(now) or os.clock()
+	state.LastTickAt = tonumber(state.LastTickAt) or currentTime
+	state.TotalSeconds = tonumber(state.TotalSeconds) or 0
+
+	if state.IsPaused ~= true then
+		local delta = math.max(0, currentTime - state.LastTickAt)
+		state.TotalSeconds += delta * (60 / BROADCAST_CLOCK_REAL_SECONDS_PER_MATCH_MINUTE)
+	end
+
+	state.LastTickAt = currentTime
+	return state.TotalSeconds
+end
+
+function MatchUIController:_renderBroadcastClock(totalSeconds)
+	if not self._broadcastClockText then
+		return
+	end
+
+	local safeSeconds = math.max(0, math.floor(tonumber(totalSeconds) or 0))
+	local minute = math.floor(safeSeconds / 60)
+	local second = safeSeconds % 60
+	self._broadcastClockText.Text = FormatBroadcastClock(minute, second)
+end
+
+function MatchUIController:_startBroadcastClockLoop()
+	if self._broadcastClockConnection then
+		return
+	end
+
+	self._broadcastClockConnection = RunService.RenderStepped:Connect(function()
+		if not self._broadcastHudActive or not self._broadcastClockText then
+			return
+		end
+
+		local totalSeconds = self:_advanceBroadcastClock(os.clock())
+		if totalSeconds ~= nil then
+			self:_renderBroadcastClock(totalSeconds)
+		end
+	end)
+end
+
+function MatchUIController:PauseBroadcastClock()
+	local state = self._broadcastClockState
+	if not state or state.IsPaused == true then
+		return
+	end
+
+	self:_advanceBroadcastClock(os.clock())
+	state.IsPaused = true
+end
+
+function MatchUIController:StopBroadcastClock()
+	local state = self._broadcastClockState
+	if not state then
+		return
+	end
+
+	self:_advanceBroadcastClock(os.clock())
+	state.IsPaused = true
+	self._broadcastClockLocked = true
+end
+
+function MatchUIController:ResumeBroadcastClock()
+	if self._broadcastClockLocked then
+		return
+	end
+
+	local state = self._broadcastClockState
+	if not state or state.IsPaused ~= true then
+		return
+	end
+
+	state.LastTickAt = os.clock()
+	state.IsPaused = false
+end
+
+function MatchUIController:SetBroadcastScore(homeScore, awayScore)
+	self:_ensureBroadcastHud()
+
+	self._broadcastHomeScoreValue = math.max(0, tonumber(homeScore) or 0)
+	self._broadcastAwayScoreValue = math.max(0, tonumber(awayScore) or 0)
+
+	if self._broadcastHomeScore then
+		self._broadcastHomeScore.Text = tostring(self._broadcastHomeScoreValue)
+	end
+	if self._broadcastAwayScore then
+		self._broadcastAwayScore.Text = tostring(self._broadcastAwayScoreValue)
+	end
+end
+
+function MatchUIController:IncrementBroadcastHomeScore(amount)
+	if not self._broadcastHudActive then
+		return
+	end
+	self:SetBroadcastScore((self._broadcastHomeScoreValue or 0) + (tonumber(amount) or 1), self._broadcastAwayScoreValue or 0)
+end
+
+function MatchUIController:IncrementBroadcastAwayScore(amount)
+	if not self._broadcastHudActive then
+		return
+	end
+	self:SetBroadcastScore(self._broadcastHomeScoreValue or 0, (self._broadcastAwayScoreValue or 0) + (tonumber(amount) or 1))
+end
+
+function MatchUIController:ShowBroadcastHud(payload)
+	if not BROADCAST_HUD_ENABLED then
+		return
+	end
+
+	self:_ensureBroadcastHud()
+	if not self._broadcastHudRoot then
+		return
+	end
+
+	local introData = GetIntroDataFromPayload(payload)
+	local areaId = tostring(introData.AreaId or (payload and payload.AreaId) or "Area01")
+	local homeName = tostring(introData.HomeTeamName or PLAYER_TEAM_NAME)
+	local awayName = tostring(introData.AwayTeamName or "Opponent FC")
+	local homeCode = ResolveTeamCode(areaId, homeName, "RIV")
+	local awayCode = ResolveTeamCode(areaId, awayName, "OPP")
+	local homeLogo = ResolveTeamLogo(areaId, homeName, introData.HomeLogo, true)
+	local awayLogo = ResolveTeamLogo(areaId, awayName, introData.AwayLogo, false)
+	local homeScore = tonumber(introData.HomeScore) or 0
+	local awayScore = tonumber(introData.AwayScore) or 0
+	local startMinute = math.max(0, math.floor(tonumber(introData.MatchMinute) or BROADCAST_CLOCK_START_MINUTE))
+
+	self._broadcastHudActive = true
+	self._broadcastClockLocked = false
+	self._broadcastHudRoot.Visible = true
+	self._broadcastActionBanner.Visible = false
+	self._broadcastHomeCode.Text = homeCode
+	self._broadcastAwayCode.Text = awayCode
+	SetImageIfFound(self._broadcastHomeLogo, homeLogo)
+	SetImageIfFound(self._broadcastAwayLogo, awayLogo)
+	self:SetBroadcastScore(homeScore, awayScore)
+
+	self._broadcastClockState = {
+		TotalSeconds = startMinute * 60,
+		LastTickAt = os.clock(),
+		IsPaused = false,
+	}
+	self:_renderBroadcastClock(startMinute * 60)
+	self:_startBroadcastClockLoop()
+end
+
+function MatchUIController:HideBroadcastHud()
+	self:_stopExcellentCameraEffect()
+	self._broadcastHudActive = false
+	self._broadcastClockLocked = false
+	self._broadcastClockState = nil
+	self._actionBannerToken = (self._actionBannerToken or 0) + 1
+	if self._broadcastHudRoot then
+		self._broadcastHudRoot.Visible = false
+	end
+	if self._broadcastActionBanner then
+		self._broadcastActionBanner.Visible = false
+	end
+end
+
+function MatchUIController:ShowActionBanner(stepPayload)
+	if not BROADCAST_HUD_ENABLED then
+		return
+	end
+
+	self:_ensureBroadcastHud()
+	if not self._broadcastActionBanner then
+		return
+	end
+
+	stepPayload = typeof(stepPayload) == "table" and stepPayload or {}
+	local action = string.upper(tostring(stepPayload.Action or "ACTION"))
+	local playerValue = formatnumber(tonumber(stepPayload.PreviewValue) or 0)
+	local enemyValue = formatnumber(tonumber(stepPayload.EnemyValue) or 0)
+	local homeCode = self._broadcastHomeCode and self._broadcastHomeCode.Text or "RIV"
+	local awayCode = self._broadcastAwayCode and self._broadcastAwayCode.Text or "OPP"
+
+	self._actionBannerToken = (self._actionBannerToken or 0) + 1
+	self._broadcastActionText.Text = string.format("%s", action)
+	self._broadcastActionText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	self._broadcastStatText.Text = string.format("%s %s  vs  %s %s", homeCode, playerValue, awayCode, enemyValue)
+	self._broadcastStatText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	self._broadcastActionBanner.Visible = true
+	self._broadcastActionBanner.BackgroundTransparency = 0.08
+	self._broadcastActionBanner.Size = UDim2.fromOffset(500, 46)
+
+	local token = self._actionBannerToken
+	UIJuice.PopIn(self._broadcastActionBanner, {
+		StartScale = 0.78,
+		OvershootScale = 1.06,
+		Duration = 0.12,
+		SettleDuration = 0.12,
+	})
+	TweenService:Create(
+		self._broadcastActionBanner,
+		TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ BackgroundTransparency = 0.02 }
+	):Play()
+	task.delay(0.18, function()
+		if token ~= self._actionBannerToken or not self._broadcastActionBanner then
+			return
+		end
+		TweenService:Create(
+			self._broadcastActionBanner,
+			TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ BackgroundTransparency = 0.08 }
+		):Play()
+	end)
+end
+
+function MatchUIController:ShowActionResultBanner(resultPayload)
+	if not BROADCAST_HUD_ENABLED then
+		return false
+	end
+
+	self:_ensureBroadcastHud()
+	if not self._broadcastActionBanner then
+		return false
+	end
+
+	resultPayload = typeof(resultPayload) == "table" and resultPayload or {}
+	local action = string.upper(tostring(resultPayload.Action or "ACTION"))
+	local qteTier = resultPayload.QteTier or resultPayload.Tier or self._lastConfirmedTier or "Yellow"
+	local qteMultiplier = tonumber(resultPayload.QteMultiplier) or 1
+	local finalValue = formatnumber(tonumber(resultPayload.FinalValue or resultPayload.PreviewValue) or 0)
+	local enemyValue = formatnumber(tonumber(resultPayload.EnemyValue) or 0)
+	local homeCode = self._broadcastHomeCode and self._broadcastHomeCode.Text or "RIV"
+	local awayCode = self._broadcastAwayCode and self._broadcastAwayCode.Text or "OPP"
+
+	self._actionBannerToken = (self._actionBannerToken or 0) + 1
+	self._broadcastActionText.Text = string.format("%s %s", action, FormatQteMultiplier(qteMultiplier))
+	self._broadcastActionText.TextColor3 = ResolveQteTierColor(qteTier)
+	self._broadcastStatText.Text = string.format("%s %s  vs  %s %s", homeCode, finalValue, awayCode, enemyValue)
+	self._broadcastStatText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	self._broadcastActionBanner.Visible = true
+	self._broadcastActionBanner.BackgroundTransparency = 0.02
+	self._broadcastActionBanner.Size = UDim2.fromOffset(500, 46)
+
+	UIJuice.PopIn(self._broadcastActionBanner, {
+		StartScale = 0.94,
+		OvershootScale = 1.04,
+		Duration = 0.08,
+		SettleDuration = 0.12,
+	})
+
+	return true
+end
+
+function MatchUIController:HideActionBanner(delaySeconds)
+	local delayValue = tonumber(delaySeconds) or 0
+	self._actionBannerToken = (self._actionBannerToken or 0) + 1
+	local token = self._actionBannerToken
+
+	task.delay(delayValue, function()
+		if token ~= self._actionBannerToken then
+			return
+		end
+		if self._broadcastActionBanner then
+			UIJuice.PopOut(self._broadcastActionBanner, {
+				Duration = 0.10,
+				EndScale = 0.88,
+			})
+		end
+	end)
+end
+
+function MatchUIController:HideActionBannerNow()
+	self._actionBannerToken = (self._actionBannerToken or 0) + 1
+	if self._broadcastActionBanner then
+		UIJuice.Cancel(self._broadcastActionBanner)
+		self._broadcastActionBanner.Visible = false
+	end
+end
+
+function MatchUIController:SetExitCallback(callbackFn)
+	self._exitCallback = callbackFn
+end
+
+function MatchUIController:SetQteConfirmCallback(callbackFn)
+	self._qteConfirmCallback = callbackFn
+end
+
+function MatchUIController:ShowExitButton()
+	self:_ensureGui()
+
+	local exitButton = self:_getExitButton()
+	if exitButton then
+		exitButton.Visible = true
+	end
+end
+
+function MatchUIController:HideExitButton()
+	self:_ensureGui()
+
+	local exitButton = self:_getExitButton()
+	if exitButton then
+		exitButton.Visible = false
+	end
+end
+
+function MatchUIController:ShowGoalsPill()
+	self:_ensureGui()
+	if BROADCAST_HUD_ENABLED then
+		self:HideGoalsPill()
+		return
+	end
+
+	local goalsPill = self:_getGoalsPill()
+	if goalsPill then
+		goalsPill.Visible = true
+	end
+end
+
+function MatchUIController:HideGoalsPill()
+	self:_ensureGui()
+
+	local goalsPill = self:_getGoalsPill()
+	if goalsPill then
+		goalsPill.Visible = false
+	end
+end
+
+function MatchUIController:SetGoalsValue(value)
+	self:_ensureGui()
+
+	self._currentGoalsValue = tonumber(value) or 0
+
+	local goalsLabel = self:_getGoalsLabel()
+	if goalsLabel then
+		goalsLabel.Text = string.format("Goals: %s", formatnumber(self._currentGoalsValue))
+	end
+end
+
+function MatchUIController:IncrementGoals(amount)
+	self:SetGoalsValue((self._currentGoalsValue or 0) + (tonumber(amount) or 0))
+end
+
+function MatchUIController:IncrementMatchScore(amount)
+	self:IncrementGoals(amount)
+	self:IncrementBroadcastHomeScore(amount)
+end
+
+function MatchUIController:ShowComparePill()
+	self:_ensureGui()
+	if BROADCAST_HUD_ENABLED then
+		self:HideComparePill()
+		return
+	end
+
+	local comparePill = self:_getComparePill()
+	if comparePill then
+		comparePill.Visible = true
+	end
+end
+
+function MatchUIController:HideComparePill()
+	self:_ensureGui()
+
+	local comparePill = self:_getComparePill()
+	if comparePill then
+		comparePill.Visible = false
+	end
+end
+
+function MatchUIController:SetCompareText(text)
+	self:_ensureGui()
+
+	local compareLabel = self:_getCompareLabel()
+	if compareLabel then
+		compareLabel.Text = text or ""
+	end
+end
+
+function MatchUIController:SetActiveMatchSession(sessionId)
+	self._activeMatchSessionId = sessionId ~= nil and tostring(sessionId) or nil
+	self._resultUiGeneration = (self._resultUiGeneration or 0) + 1
+	self:HideResultPopup()
+end
+
+function MatchUIController:ClearActiveMatchSession(sessionId)
+	if sessionId ~= nil and self._activeMatchSessionId ~= nil and tostring(sessionId) ~= tostring(self._activeMatchSessionId) then
+		return
+	end
+
+	self._activeMatchSessionId = nil
+	self._resultUiGeneration = (self._resultUiGeneration or 0) + 1
+	self:HideResultPopup()
+end
+
+function MatchUIController:_isResultPayloadCurrent(payload)
+	local payloadSessionId = GetPayloadSessionId(payload)
+	if payloadSessionId == nil then
+		return self._activeMatchSessionId ~= nil
+	end
+
+	return self._activeMatchSessionId ~= nil and tostring(self._activeMatchSessionId) == payloadSessionId
+end
+
+function MatchUIController:ClearTransitionOverlay()
+	self:_ensureGui()
+
+	self._fadeToken += 1
+	if self._activeFadeTween then
+		pcall(function()
+			self._activeFadeTween:Cancel()
+		end)
+		self._activeFadeTween = nil
+	end
+
+	local blackout = self:_getBlackoutFrame()
+	if blackout then
+		blackout.BackgroundTransparency = 1
+		blackout.Visible = false
+	end
+
+	local label = self:_getStatusLabel()
+	if label then
+		label.Text = ""
+	end
+end
+
+function MatchUIController:BeginMatchUi(callbackFn)
+	self:_ensureGui()
+	self:SetExitCallback(callbackFn)
+	self:HideExitButton()
+	self:HideGoalsPill()
+	self:HideComparePill()
+	self:HideBroadcastHud()
+	if self.HideActionBannerNow then
+		self:HideActionBannerNow()
+	else
+		self:HideActionBanner(0)
+	end
+	self:HideQte()
+	self:HideResultPopup()
+end
+
+function MatchUIController:EndMatchUi(options)
+	local preserveTransitionOverlay = options == true
+		or (type(options) == "table" and options.PreserveTransitionOverlay == true)
+
+	self._activeMatchSessionId = nil
+	self._resultUiGeneration = (self._resultUiGeneration or 0) + 1
+	self:HideExitButton()
+	self:HideGoalsPill()
+	self:HideComparePill()
+	self:HideBroadcastHud()
+	self:HideActionBanner(0)
+	self:HideQte()
+	self:HideResultPopup()
+	self:SetExitCallback(nil)
+	self:SetQteConfirmCallback(nil)
+	self:SetGoalsValue(0)
+	self:SetCompareText("")
+	self:_showCenterPopup(nil, nil, 0)
+
+	if not preserveTransitionOverlay then
+		self:ClearTransitionOverlay()
+	end
+end
+
+function MatchUIController:FadeToBlack(statusText)
+	self:_ensureGui()
+	self:_raiseTransitionOverlay()
+	self:_suppressMatchHudForTransition()
+
+	local blackout = self:_getBlackoutFrame()
+	local label = self:_getStatusLabel()
+
+	if not blackout then
+		return
+	end
+
+	blackout.Visible = true
+	self._fadeToken += 1
+	local myToken = self._fadeToken
+
+	if self._activeFadeTween then
+		pcall(function()
+			self._activeFadeTween:Cancel()
+		end)
+		self._activeFadeTween = nil
+	end
+
+	if label then
+		label.Text = statusText or ""
+	end
+
+	local tween = TweenService:Create(
+		blackout,
+		TweenInfo.new(MatchConstants.TRANSITION_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ BackgroundTransparency = 0 }
+	)
+
+	self._activeFadeTween = tween
+	tween:Play()
+	tween.Completed:Wait()
+
+	if self._fadeToken == myToken then
+		self._activeFadeTween = nil
+	end
+end
+
+function MatchUIController:CutToBlack(statusText)
+	self:_ensureGui()
+	self:_raiseTransitionOverlay()
+	self:_suppressMatchHudForTransition()
+
+	local blackout = self:_getBlackoutFrame()
+	local label = self:_getStatusLabel()
+
+	self._fadeToken += 1
+	if self._activeFadeTween then
+		pcall(function()
+			self._activeFadeTween:Cancel()
+		end)
+		self._activeFadeTween = nil
+	end
+
+	if blackout then
+		blackout.Visible = true
+		blackout.BackgroundTransparency = 0
+	end
+
+	if label then
+		label.Text = statusText or ""
+	end
+end
+
+function MatchUIController:FadeFromBlack()
+	self:_ensureGui()
+
+	local blackout = self:_getBlackoutFrame()
+	local label = self:_getStatusLabel()
+
+	if not blackout then
+		return
+	end
+
+	self._fadeToken += 1
+	local myToken = self._fadeToken
+
+	if self._activeFadeTween then
+		pcall(function()
+			self._activeFadeTween:Cancel()
+		end)
+		self._activeFadeTween = nil
+	end
+
+	local tween = TweenService:Create(
+		blackout,
+		TweenInfo.new(MatchConstants.TRANSITION_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ BackgroundTransparency = 1 }
+	)
+
+	self._activeFadeTween = tween
+	tween:Play()
+	tween.Completed:Wait()
+
+	if self._fadeToken ~= myToken then
+		return
+	end
+
+	self._activeFadeTween = nil
+
+	if label then
+		label.Text = ""
+	end
+
+	if blackout then
+		blackout.Visible = false
+	end
+end
+
+function MatchUIController:ShowQte(stepPayload, confirmCallback)
+	self:_ensureGui()
+	self:PauseBroadcastClock()
+	self:SetQteConfirmCallback(confirmCallback)
+
+	local qteLayer = self:_getQteLayer()
+	if not qteLayer then
+		-- Wait for Roact refs to populate if this is the first mount
+		RunService.Heartbeat:Wait()
+		qteLayer = self:_getQteLayer()
+	end
+
+	if qteLayer then
+		ConfigureQteVisualTree(qteLayer)
+		qteLayer.Visible = true
+	end
+
+	local stepLabel = self:_getQteStepLabel()
+	local actionLabel = self:_getQteActionLabel()
+	local targetLabel = self:_getQteTargetLabel()
+
+	if stepLabel then
+		stepLabel.Text = string.format("STEP %d / %d", stepPayload.StepIndex or 1, stepPayload.TotalSteps or 5)
+	end
+
+	if actionLabel then
+		actionLabel.Text = string.upper(stepPayload.Action or "ACTION")
+	end
+
+	if targetLabel then
+		targetLabel.Text = string.format("Target: %s", formatnumber(stepPayload.EnemyValue or 0))
+	end
+
+	self._currentQteLayout = self:_buildRandomQteConfig(stepPayload.StepIndex or 1)
+	self:_applyQteLayout(self._currentQteLayout)
+	ConfigureQteVisualTree(qteLayer)
+
+	self._activeQte = {
+		Locked = false,
+		StartedAt = os.clock(),
+		Action = stepPayload.Action,
+		StepIndex = stepPayload.StepIndex,
+	}
+
+	self:_startCursorLoop()
+	self:_setPointerAlpha(0.5)
+end
+
+function MatchUIController:ConfirmQte()
+	if not self._activeQte then
+		return nil
+	end
+
+	if self._activeQte.Locked then
+		return nil
+	end
+
+	self._activeQte.Locked = true
+
+	local alpha = self._currentCursorAlpha or 0.5
+	local tier = self:_resolveTierFromAlpha(alpha)
+
+	-- Cache for presentation systems (e.g. shoot curve logic)
+	self._lastConfirmedTier = tier
+
+	return {
+		Tier = tier,
+		CursorAlpha = alpha,
+	}
+end
+
+function MatchUIController:ActivateCheatAutoPerfect()
+	print("[CHEAT] MatchUIController:ActivateCheatAutoPerfect called!")
+	if not self._activeQte or self._activeQte.Locked then
+		print("[CHEAT] Failed: activeQte is nil or locked", tostring(self._activeQte ~= nil), tostring(self._activeQte and self._activeQte.Locked))
+		return
+	end
+
+	local layout = self._currentQteLayout
+	if layout and layout.Green then
+		local greenCenter = layout.Green.Position + (layout.Green.Width / 2)
+		print(("[CHEAT] Snapping pointer to GreenCenter: %f (Green range: %f to %f)"):format(greenCenter, layout.GreenStart, layout.GreenEnd))
+		self:_setPointerAlpha(greenCenter)
+	else
+		print("[CHEAT] No layout or green zone! Snapping to 0.5")
+		self:_setPointerAlpha(0.5)
+	end
+end
+
+local function ResolveActionResultText(action, succeeded, qteTier)
+	local actionName = string.upper(tostring(action or "ACTION"))
+	if not succeeded then
+		return string.format("%s FAILED", actionName), Color3.fromRGB(255, 110, 110)
+	end
+
+	if IsExcellentTier(qteTier) then
+		return string.format("%s EXCELLENT", actionName), Color3.fromRGB(255, 238, 45)
+	end
+
+	return string.format("%s SUCCESS", actionName), Color3.fromRGB(88, 184, 255)
+end
+
+function MatchUIController:ShowQteResult(resultPayload)
+	self:_ensureGui()
+	self:HideComparePill()
+
+	resultPayload = typeof(resultPayload) == "table" and resultPayload or {}
+	local resultBannerShown = self:ShowActionResultBanner(resultPayload)
+	if resultBannerShown then
+		self:HideActionBanner(QTE_RESULT_BANNER_HOLD)
+	else
+		self:HideActionBannerNow()
+	end
+
+	if IsShootAction(resultPayload.Action) then
+		-- Shoot has its own cinematic and final MatchResult UI. Suppress the legacy
+		-- center QTE result popup here so it does not visually stall the shot.
+		self:_showCenterPopup(nil, nil, 0)
+		self:StopBroadcastClock()
+
+		-- Score increment is deferred to MatchShootDirector which will call
+		-- IncrementMatchScore exactly when the ball reaches the net.
+
+		return
+	end
+
+	if resultPayload.Succeeded then
+		if (resultPayload.AwardedGoals or 0) > 0 then
+			-- The final artist result screen already communicates the goal/win.
+			-- Avoid the old reward text popup because it overlaps the TV HUD and adds lag.
+			self:IncrementBroadcastHomeScore(resultPayload.AwardedGoals or 1)
+			self:StopBroadcastClock()
+			self:_showCenterPopup(nil, nil, 0)
+		else
+			local qteTier = resultPayload.QteTier or resultPayload.Tier or self._lastConfirmedTier
+			local resultText, resultColor = ResolveActionResultText(resultPayload.Action, true, qteTier)
+			if IsExcellentTier(qteTier) then
+				self:_playExcellentCameraEffect()
+			end
+			if not resultBannerShown then
+				self:_showCenterPopup(resultText, resultColor, 0.9)
+			end
+		end
+	else
+		local resultText, resultColor = ResolveActionResultText(resultPayload.Action, false, resultPayload.QteTier or resultPayload.Tier)
+		if not resultBannerShown then
+			self:_showCenterPopup(resultText, resultColor, 0.9)
+		end
+	end
+end
+
+
+function MatchUIController:_resolveArtistMatchFinishedRefs()
+	local playerGui = self:_getPlayerGui()
+	if not playerGui then
+		return nil
+	end
+
+	local matchBattleGui = playerGui:FindFirstChild("GUIMatchBattle")
+	if not (matchBattleGui and matchBattleGui:IsA("ScreenGui")) then
+		return nil
+	end
+
+	local matchFinished = matchBattleGui:FindFirstChild("MatchFinished")
+	local popup = matchFinished and matchFinished:FindFirstChild("Popup")
+	if not (matchFinished and matchFinished:IsA("GuiObject") and popup and popup:IsA("GuiObject")) then
+		return nil
+	end
+
+	local versus = popup:FindFirstChild("Versus")
+	local playerFrame = versus and versus:FindFirstChild("Player")
+	local enemyFrame = versus and versus:FindFirstChild("Enemy")
+	local rewardsRoot = popup:FindFirstChild("Rewards") or popup
+
+	return {
+		Gui = matchBattleGui,
+		Root = matchFinished,
+		Popup = popup,
+		Versus = versus,
+		PlayerFrame = playerFrame,
+		EnemyFrame = enemyFrame,
+		PlayerLogo = playerFrame and FindFirstImageObject(playerFrame, { "Logo" }),
+		EnemyLogo = enemyFrame and FindFirstImageObject(enemyFrame, { "Logo" }),
+		PlayerNameText = playerFrame and FindFirstTextLabel(playerFrame, { "NameText", "Name", "TeamName" }),
+		EnemyNameText = enemyFrame and FindFirstTextLabel(enemyFrame, { "NameText", "Name", "TeamName" }),
+		PlayerScoreText = popup:FindFirstChild("PlayerScoreText") or FindDescendantByName(popup, "PlayerScoreText"),
+		EnemyScoreText = popup:FindFirstChild("EnemyScoreText") or FindDescendantByName(popup, "EnemyScoreText"),
+		TitleText = popup:FindFirstChild("TitleText"),
+		ResultText = popup:FindFirstChild("ResultText"),
+		RewardText = FindFirstTextLabel(rewardsRoot, {
+			"Reward Text",
+			"RewardText",
+			"Reward Tex",
+			"Reward",
+			"NumberText",
+			"Text",
+		}),
+		Tournament = matchBattleGui:FindFirstChild("Tournament"),
+		MatchStart = matchBattleGui:FindFirstChild("MatchStart"),
+	}
+end
+
+function MatchUIController:_resolveArtistMatchStartRefsForResult()
+	local playerGui = self:_getPlayerGui()
+	if not playerGui then
+		return nil
+	end
+
+	local matchBattleGui = playerGui:FindFirstChild("GUIMatchBattle")
+	local matchStart = matchBattleGui and matchBattleGui:FindFirstChild("MatchStart")
+	local popup = matchStart and matchStart:FindFirstChild("Popup")
+	local versus = popup and popup:FindFirstChild("Versus")
+	local playerFrame = versus and versus:FindFirstChild("Player")
+	local enemyFrame = versus and versus:FindFirstChild("Enemy")
+
+	if not popup then
+		return nil
+	end
+
+	return {
+		PlayerLogo = playerFrame and FindFirstImageObject(playerFrame, { "Logo" }),
+		EnemyLogo = enemyFrame and FindFirstImageObject(enemyFrame, { "Logo" }),
+		PlayerNameText = playerFrame and FindFirstTextLabel(playerFrame, { "NameText", "Name", "TeamName" }),
+		EnemyNameText = enemyFrame and FindFirstTextLabel(enemyFrame, { "NameText", "Name", "TeamName" }),
+		PlayerScoreText = popup:FindFirstChild("PlayerScoreText") or FindDescendantByName(popup, "PlayerScoreText"),
+		EnemyScoreText = popup:FindFirstChild("EnemyScoreText") or FindDescendantByName(popup, "EnemyScoreText"),
+	}
+end
+
+function MatchUIController:_showArtistMatchFinished(success, payload)
+	local refs = self:_resolveArtistMatchFinishedRefs()
+	if not refs then
+		return false
+	end
+
+	self._resultPopupToken = (self._resultPopupToken or 0) + 1
+	local introRefs = self:_resolveArtistMatchStartRefsForResult()
+	payload = typeof(payload) == "table" and payload or {}
+
+	local homeScore = ReadNumericText(introRefs and introRefs.PlayerScoreText, payload.HomeScore)
+	local awayScore = ReadNumericText(introRefs and introRefs.EnemyScoreText, payload.AwayScore)
+	local awardedGoals = tonumber(payload.AwardedGoals) or 0
+	if success and awardedGoals <= 0 then
+		awardedGoals = 1
+	end
+
+	local finalHomeScore = self._broadcastHomeScoreValue or (homeScore + (success and awardedGoals or 0))
+	local finalAwayScore = self._broadcastAwayScoreValue or awayScore
+	local wins = GetPayloadWins(payload)
+
+	if refs.Gui and refs.Gui:IsA("ScreenGui") then
+		refs.Gui.Enabled = true
+	end
+
+	SetGuiVisible(refs.Tournament, false)
+	SetGuiVisible(refs.MatchStart, false)
+	SetGuiVisible(refs.Root, true)
+	SetGuiVisible(refs.Popup, true)
+	SetGuiVisible(refs.Versus, true)
+	UIJuice.Cancel(refs.Popup)
+
+	SetImageFromSource(refs.PlayerLogo, introRefs and introRefs.PlayerLogo)
+	SetImageFromSource(refs.EnemyLogo, introRefs and introRefs.EnemyLogo)
+	SetTextIfFound(refs.PlayerNameText, introRefs and introRefs.PlayerNameText and introRefs.PlayerNameText.Text or "Rivrs FC")
+	SetTextIfFound(refs.EnemyNameText, introRefs and introRefs.EnemyNameText and introRefs.EnemyNameText.Text or "Opponent FC")
+	SetTextIfFound(refs.PlayerScoreText, tostring(finalHomeScore))
+	SetTextIfFound(refs.EnemyScoreText, tostring(finalAwayScore))
+
+	if refs.TitleText then
+		refs.TitleText.Visible = true
+	end
+
+	-- Set up win/lose result text
+	local winTitle = refs.Popup:FindFirstChild("Win", true) 
+		or refs.Popup:FindFirstChild("YouWin", true) 
+		or refs.Popup:FindFirstChild("Victory", true)
+	local loseTitle = refs.Popup:FindFirstChild("Lose", true) 
+		or refs.Popup:FindFirstChild("YouLose", true) 
+		or refs.Popup:FindFirstChild("Defeat", true)
+
+	if winTitle and loseTitle then
+		winTitle.Visible = success
+		loseTitle.Visible = not success
+	elseif refs.ResultText then
+		refs.ResultText.Text = success and "YOU WIN!" or "YOU LOSE!"
+		refs.ResultText.Visible = true
+	elseif refs.TitleText then
+		refs.TitleText.Text = success and "YOU WIN!" or "YOU LOSE!"
+	end
+
+	if success then
+		SetTextIfFound(refs.RewardText, string.format("+%s Wins", formatnumber(wins)))
+	else
+		SetTextIfFound(refs.RewardText, "Try again!")
+	end
+
+	pcall(function()
+		refs.Popup.GroupTransparency = 1
+		TweenService:Create(
+			refs.Popup,
+			TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+			{ GroupTransparency = 0 }
+		):Play()
+	end)
+	UIJuice.PopIn(refs.Popup, {
+		StartScale = 0.74,
+		OvershootScale = 1.08,
+		Duration = 0.18,
+		SettleDuration = 0.16,
+	})
+
+	return true
+end
+
+function MatchUIController:ShowMatchResult(success, payload)
+	self:_stopExcellentCameraEffect()
+	if not self:_isResultPayloadCurrent(payload) then
+		return
+	end
+
+	self:HideComparePill()
+	self:HideActionBannerNow()
+	self:_showCenterPopup(nil, nil, 0)
+	self:StopBroadcastClock()
+	self._resultPopupToken = (self._resultPopupToken or 0) + 1
+
+	if not success then
+		self:IncrementBroadcastAwayScore(1)
+	end
+
+	-- Prefer the artist-authored GUIMatchBattle.MatchFinished popup. The Roact
+	-- ResultPopup remains only as a compatibility fallback for old test places.
+	if self:_showArtistMatchFinished(success, payload) then
+		return
+	end
+
+	self:_ensureGui()
+	
+	local popup = self._resultPopupGroup
+	local winLabel = self._resultWinLabel
+	local loseLabel = self._resultLoseLabel
+	local rewards = self._resultRewardsLabel
+	
+	if not popup or not rewards then return end
+	
+	if winLabel and loseLabel and winLabel ~= loseLabel then
+		if success then
+			winLabel.Visible = true
+			loseLabel.Visible = false
+		else
+			winLabel.Visible = false
+			loseLabel.Visible = true
+		end
+	else
+		local title = winLabel
+		if title then
+			title.Text = ""
+			title.Visible = false
+		end
+	end
+	
+	local wins = GetPayloadWins(payload)
+	rewards.Text = success and string.format("+%s Wins", formatnumber(wins)) or "Try again!"
+	
+	popup.Visible = true
+	popup.GroupTransparency = 1
+	UIJuice.Cancel(popup)
+	
+	TweenService:Create(popup, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+	UIJuice.PopIn(popup, {
+		StartScale = 0.74,
+		OvershootScale = 1.08,
+		Duration = 0.18,
+		SettleDuration = 0.16,
+	})
+end
+
+function MatchUIController:HideResultPopup()
+	self:_stopExcellentCameraEffect()
+	self._resultPopupToken = (self._resultPopupToken or 0) + 1
+	local token = self._resultPopupToken
+	local playerGui = self:_getPlayerGui()
+	local matchBattleGui = playerGui and playerGui:FindFirstChild("GUIMatchBattle")
+	local matchFinished = matchBattleGui and matchBattleGui:FindFirstChild("MatchFinished")
+	if matchFinished and matchFinished:IsA("GuiObject") then
+		local popup = matchFinished:FindFirstChild("Popup")
+		if matchFinished.Visible and popup and popup:IsA("GuiObject") then
+			pcall(function()
+				TweenService:Create(
+					popup,
+					TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{ GroupTransparency = 1 }
+				):Play()
+			end)
+			UIJuice.PopOut(popup, {
+				Duration = 0.14,
+				EndScale = 0.86,
+			}, function()
+				if token ~= self._resultPopupToken then
+					return
+				end
+				matchFinished.Visible = false
+				popup.Visible = false
+			end)
+		else
+			matchFinished.Visible = false
+		end
+	end
+
+	self:_ensureGui()
+	local popup = self._resultPopupGroup
+	if popup then
+		if popup.Visible then
+			pcall(function()
+				TweenService:Create(
+					popup,
+					TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{ GroupTransparency = 1 }
+				):Play()
+			end)
+			UIJuice.PopOut(popup, {
+				Duration = 0.14,
+				EndScale = 0.86,
+			}, function()
+				if token ~= self._resultPopupToken then
+					return
+				end
+				popup.Visible = false
+			end)
+		else
+			popup.Visible = false
+		end
+	end
+end
+
+-- Returns "Green", "Yellow", or "Red" for the last confirmed QTE press.
+function MatchUIController:GetLastConfirmedTier()
+	return self._lastConfirmedTier or "Yellow"
+end
+
+function MatchUIController:HideQte(options)
+	self:_ensureGui()
+	options = typeof(options) == "table" and options or {}
+
+	if options.ResumeBroadcastClock ~= false and self._broadcastHudActive then
+		self:ResumeBroadcastClock()
+	end
+
+	local qteLayer = self:_getQteLayer()
+	if qteLayer then
+		qteLayer.Visible = false
+	end
+
+	self._activeQte = nil
+	self._currentCursorAlpha = 0.5
+	self._currentQteLayout = nil
+	self:SetQteConfirmCallback(nil)
+	self:_stopCursorLoop()
+end
+
+function MatchUIController:KnitInit()
+	self._guiInitialized = false
+	self._matchGui = nil
+	
+	self._exitCallback = nil
+	self._qteConfirmCallback = nil
+	self._activeQte = nil
+	self._currentCursorAlpha = 0.5
+	self._cursorConnection = nil
+	self._currentGoalsValue = 0
+	self._centerPopupToken = 0
+	self._currentQteLayout = nil
+	self._lastConfirmedTier = nil
+	self._fadeToken = 0
+	self._activeFadeTween = nil
+	self._activeMatchSessionId = nil
+	self._resultUiGeneration = 0
+	self._broadcastHudRoot = nil
+	self._broadcastHudActive = false
+	self._broadcastClockLocked = false
+	self._broadcastClockState = nil
+	self._broadcastClockConnection = nil
+	self._broadcastHomeScoreValue = 0
+	self._broadcastAwayScoreValue = 0
+	self._actionBannerToken = 0
+	self._excellentEffectToken = 0
+	self._excellentEffectTweens = {}
+	self._excellentEffectRecords = nil
+	self._excellentEffectRoot = nil
+	self._excellentEffectRootVisible = nil
+	self._excellentEffectRootEnabled = nil
+end
+
+function MatchUIController:KnitStart()
+	local function connectCamera(camera)
+		if not camera then return end
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			self:_updateAllResponsiveScales()
+		end)
+		self:_updateAllResponsiveScales()
+	end
+
+	if workspace.CurrentCamera then
+		connectCamera(workspace.CurrentCamera)
+	end
+
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		connectCamera(workspace.CurrentCamera)
+	end)
+end
+
+return MatchUIController
