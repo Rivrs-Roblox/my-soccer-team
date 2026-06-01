@@ -41,11 +41,13 @@ local RebirthTable = DataCacheController:GetFile("RebirthTable")
 local UI = DataCacheController:GetFile("Images")
 
 local function getRebirthRequirement(rebirth: number)
-	if rebirth < #RebirthTable then
+	if rebirth <= #RebirthTable then
 		return RebirthTable[rebirth]
 	end
 
-	return RebirthTable[#RebirthTable] * math.pow(1.3, rebirth - #RebirthTable)
+	local last = RebirthTable[#RebirthTable]
+	local mult = math.pow(1.3, rebirth - #RebirthTable)
+	return { A = last.A * mult, B = last.B * mult, C = last.C * mult }
 end
 
 local function BlueButton(params: {})
@@ -390,21 +392,21 @@ function Rebirth(_, hooks)
 					name = "Shooting",
 					image = UI.Shoot,
 					currentValue = currentShoot,
-					nextValue = rebirthRequirement,
+					nextValue = rebirthRequirement.A,
 					layoutOrder = 2,
 				}),
 				Passing = Row({
 					name = "Passing",
 					image = UI.Pass,
 					currentValue = currentPass,
-					nextValue = rebirthRequirement,
+					nextValue = rebirthRequirement.B,
 					layoutOrder = 1,
 				}),
 				Dribbling = Row({
 					name = "Dribbling",
 					image = UI.Dribble,
 					currentValue = currentDribble,
-					nextValue = rebirthRequirement,
+					nextValue = rebirthRequirement.C,
 					layoutOrder = 3,
 				}),
 			}),
