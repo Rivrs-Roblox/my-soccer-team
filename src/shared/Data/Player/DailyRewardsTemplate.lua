@@ -1,10 +1,10 @@
 return table.freeze({
 	[1] = {
 		Image = "Wins",
-		Name = "15 Wins",
+		Name = "500 Wins",
 		Reward = "Currency",
 		Currency = "Wins",
-		Amount = 15,
+		Amount = 500,
 		Claimed = false,
 	},
 
@@ -19,28 +19,28 @@ return table.freeze({
 
 	[3] = {
 		Image = "Wins",
-		Name = "1k Wins",
+		Name = "2.5k Wins",
 		Reward = "Currency",
 		Currency = "Wins",
-		Amount = 1_000,
+		Amount = 2_500,
 		Claimed = false,
 	},
 
 	[4] = {
 		Image = "Wins",
-		Name = "50k Wins",
+		Name = "10k Wins",
 		Reward = "Currency",
 		Currency = "Wins",
-		Amount = 50_000,
+		Amount = 10_000,
 		Claimed = false,
 	},
 
 	[5] = {
 		Image = "Wins",
-		Name = "250k Wins",
+		Name = "50k Wins",
 		Reward = "Currency",
 		Currency = "Wins",
-		Amount = 250_000,
+		Amount = 50_000,
 		Claimed = false,
 	},
 

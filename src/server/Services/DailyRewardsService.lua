@@ -118,8 +118,25 @@ function DailyRewardsService:ClaimReward(player: Player, id: number, bypassTime:
 	return { text = self.Template.Messages.Notifications.Reward_Claimed_Success, type = "SUCCESS" }
 end
 
+-- Sync Amount/Name từ template mới nhất vào player data (chỉ sync metadata, giữ Claimed)
+function DailyRewardsService:SyncRewardsTemplate(player: Player)
+	local data = DataService:GetData(player)
+	if data == nil then return end
+
+	-- DailyRewardsTemplate nằm trong Player folder → lấy qua GetFile("Player")
+	local template = DataCacheService:GetFile("Player").DailyRewards
+	for id, templateReward in pairs(template) do
+		if data.DailyRewards[id] then
+			data.DailyRewards[id].Amount = templateReward.Amount
+			data.DailyRewards[id].Name   = templateReward.Name
+		end
+	end
+end
+
 --|| Knit Lifecycle ||--
 function DailyRewardsService:KnitInit()
+	local Players = game:GetService("Players")
+
 	DataService = Knit.GetService("DataService")
 	DataCacheService = Knit.GetService("DataCacheService")
 	SeasonService = Knit.GetService("SeasonService")
@@ -127,6 +144,11 @@ function DailyRewardsService:KnitInit()
 	SoccerCharactersService = Knit.GetService("SoccerCharactersService")
 
 	self.Template = DataCacheService:GetFile("Template")
+
+	Players.PlayerAdded:Connect(function(player)
+		task.wait(3) -- chờ DataService load xong data
+		self:SyncRewardsTemplate(player)
+	end)
 
 	print("[DAILY REWARDS SERVICE] Service started successfully.")
 end
