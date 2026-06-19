@@ -15,15 +15,6 @@ return function(MatchPresentationController, Context)
 	local MatchShootCinematicDirector = require(script.Parent.MatchShootCinematicDirector)
 	local MatchActionFxHelper = require(script.Parent.MatchActionFxHelper)
 
-	local function formatDistance(distance)
-		if distance == nil then
-			return "nil"
-		end
-
-		return string.format("%.2f", distance)
-	end
-
-
 	local function stopLingeringMatchActionEffects(self)
 		local stoppedCount = 0
 
@@ -36,51 +27,11 @@ return function(MatchPresentationController, Context)
 			end
 		end
 
-		stopIn(LocalPlayer.Character)
 		stopIn(self.PlayerProxy)
 
 		local runtimeFolder = Workspace:FindFirstChild("LocalMatchPresentationRuntime")
 		stopIn(runtimeFolder)
 
-		local soccerCharactersController = nil
-		pcall(function()
-			soccerCharactersController = Knit.GetController("SoccerCharactersController")
-		end)
-
-		local instancesFolder = soccerCharactersController and soccerCharactersController.SoccerCharacterInstances
-		if instancesFolder then
-			for _, model in ipairs(instancesFolder:GetChildren()) do
-				if model:IsA("Model") then
-					local ownerName = model:GetAttribute("Owner")
-					local ownerUserId = model:GetAttribute("OwnerUserId")
-					if ownerName == LocalPlayer.Name or ownerUserId == LocalPlayer.UserId then
-						stopIn(model)
-					end
-				end
-			end
-		end
-
-		local coachesController = nil
-		pcall(function()
-			coachesController = Knit.GetController("CoachesController")
-		end)
-
-		local coachFolder = coachesController and coachesController.CoachInstances
-		if coachFolder then
-			for _, model in ipairs(coachFolder:GetChildren()) do
-				if model:IsA("Model") then
-					local ownerName = model:GetAttribute("Owner")
-					local ownerUserId = model:GetAttribute("OwnerUserId")
-					if ownerName == LocalPlayer.Name or ownerUserId == LocalPlayer.UserId then
-						stopIn(model)
-					end
-				end
-			end
-		end
-
-		if self.DebugReturnAttendance == true and stoppedCount > 0 then
-			print(string.format("[MatchReturn][ClientPresentation] lingering match action FX disabled count=%d", stoppedCount))
-		end
 	end
 
 	local function restartCharacterAnimateScript(character)
@@ -197,11 +148,19 @@ return function(MatchPresentationController, Context)
 				descendant.Anchored = false
 
 				pcall(function()
+					descendant.CollisionGroup = "Humanoid"
+				end)
+
+				pcall(function()
 					descendant.AssemblyLinearVelocity = Vector3.zero
 					descendant.AssemblyAngularVelocity = Vector3.zero
 				end)
 			end
 		end
+
+		pcall(function()
+			MatchActionFxHelper.ClearForceDisabled(model)
+		end)
 
 		local humanoid = model:FindFirstChildOfClass("Humanoid")
 		recoverHumanoidLobbyState(humanoid)
@@ -252,21 +211,24 @@ return function(MatchPresentationController, Context)
 				descendant.LocalTransparencyModifier = self.PlayerHiddenParts[descendant] or 0
 				descendant.Anchored = false
 
+				local targetGroup = "Humanoid"
 				if record then
-					pcall(function()
-						descendant.CollisionGroup = record.CollisionGroup or "Default"
-					end)
+					targetGroup = record.CollisionGroup or "Humanoid"
+					if targetGroup == "Default" then
+						targetGroup = "Humanoid"
+					end
 					descendant.CanCollide = record.CanCollide == true
 					descendant.CanTouch = record.CanTouch ~= false
 					descendant.CanQuery = record.CanQuery ~= false
 					descendant.Massless = record.Massless == true
 				else
-					pcall(function()
-						descendant.CollisionGroup = "Default"
-					end)
 					descendant.CanTouch = true
 					descendant.CanQuery = true
 				end
+
+				pcall(function()
+					descendant.CollisionGroup = targetGroup
+				end)
 
 				pcall(function()
 					descendant.AssemblyLinearVelocity = Vector3.zero
@@ -275,17 +237,13 @@ return function(MatchPresentationController, Context)
 			end
 		end
 
+		pcall(function()
+			MatchActionFxHelper.ClearForceDisabled(character)
+		end)
+
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		recoverHumanoidLobbyState(humanoid)
-		local animateRestarted = restartCharacterAnimateScript(character)
-
-		if self.DebugReturnAttendance == true then
-			print(string.format(
-				"[MatchReturn][ClientPresentation] local character animation restored stoppedTracks=%d animateRestarted=%s",
-				stoppedTrackCount,
-				tostring(animateRestarted)
-			))
-		end
+		restartCharacterAnimateScript(character)
 
 		table.clear(self.PlayerHiddenParts)
 		if self.CutsceneCollisionRecords then
@@ -359,58 +317,7 @@ return function(MatchPresentationController, Context)
 			end
 		end)
 
-		if self.DebugReturnAttendance == true then
-			print(string.format(
-				"[MatchReturn][ClientPresentation] soccer character animation cache reset grids=%d stoppedTracks=%d",
-				resetGridCount,
-				stoppedTrackCount
-			))
-		end
-
 		return resetGridCount, stoppedTrackCount
-	end
-
-	function MatchPresentationController:_printReturnAttendance(reason)
-		if self.DebugReturnAttendance ~= true then
-			return
-		end
-
-		local character = LocalPlayer.Character
-		local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-		print(string.format(
-			"[MatchReturn][ClientPresentation] player character=%s root=%s anchored=%s humanoid=%s reason=%s",
-			tostring(character ~= nil),
-			tostring(rootPart ~= nil),
-			tostring(rootPart and rootPart.Anchored == true or false),
-			tostring(humanoid ~= nil),
-			tostring(reason or "MatchSessionEnded")
-		))
-
-		if self.PlayerProxy then
-			print("[MatchReturn][ClientPresentation][WARN] PlayerProxy still exists after cleanup:", self.PlayerProxy:GetFullName())
-		end
-
-		if self.MatchCompanionVisualController and self.MatchCompanionVisualController.GetOwnedCompanionModels then
-			local companions = self.MatchCompanionVisualController:GetOwnedCompanionModels(LocalPlayer)
-			for index, companionModel in ipairs(companions) do
-				local modelRoot = companionModel and companionModel:FindFirstChild("HumanoidRootPart")
-				local distance = nil
-				if rootPart and modelRoot then
-					distance = (modelRoot.Position - rootPart.Position).Magnitude
-				end
-
-				print(string.format(
-					"[MatchReturn][ClientPresentation] companionIndex=%d model=%s root=%s anchored=%s distanceToPlayer=%s",
-					index,
-					companionModel and companionModel.Name or "nil",
-					tostring(modelRoot ~= nil),
-					tostring(modelRoot and modelRoot.Anchored == true or false),
-					formatDistance(distance)
-				))
-			end
-		end
 	end
 
 	function MatchPresentationController:_finalizeReturnCleanup(reason)
@@ -452,10 +359,14 @@ return function(MatchPresentationController, Context)
 			stopLingeringMatchActionEffects(self)
 		end)
 
-		self:_printReturnAttendance(reason)
 	end
 
 	function MatchPresentationController:_beginSession(payload)
+		local MatchSceneQuery = Context.MatchSceneQuery
+		if MatchSceneQuery and MatchSceneQuery.SetActiveZoneVariationId then
+			MatchSceneQuery.SetActiveZoneVariationId(payload and payload.ZoneVariationId)
+		end
+
 		local serverSpawnCFrame = payload and payload.PlayerSpawnCFrame
 		self.CurrentPlayerSpawnRootCFrame = if typeof(serverSpawnCFrame) == "CFrame"
 			then serverSpawnCFrame
@@ -464,7 +375,6 @@ return function(MatchPresentationController, Context)
 		-- Since streaming (StreamingEnabled) or replication latency can delay
 		-- the creation/streaming of map instances on the client, wait/poll
 		-- for the spawnPart to exist up to a reasonable timeout before initializing.
-		local MatchSceneQuery = Context.MatchSceneQuery
 		if self.CurrentPlayerSpawnRootCFrame == nil and MatchSceneQuery and MatchSceneQuery.GetPlayerSpawn then
 			local startTime = os.clock()
 			while os.clock() - startTime < 4.0 do
@@ -490,8 +400,6 @@ return function(MatchPresentationController, Context)
 		self.LastCompletedPostActionStepIndex = 0
 		self.CurrentSessionWins = 0
 		self.CurrentSessionGoals = 0
-		self.DebugReturnAttendance = self.DebugReturnAttendance == true
-
 		self:_setTimeScale(DEFAULT_TIME_SCALE)
 		stopLingeringMatchActionEffects(self)
 		if self._resumeKnownMatchRigAnimations then
@@ -525,15 +433,9 @@ return function(MatchPresentationController, Context)
 		self.ShooterResultAnimationToken = (self.ShooterResultAnimationToken or 0) + 1
 
 		self:_ensureRuntimeFolder()
-		if self._debugSpawnHandoff then
-			self:_debugSpawnHandoff("begin-session-before-proxy")
-		end
 		self:_ensurePlayerProxy()
 		if self._resetPlayerProxyToSpawn then
 			self:_resetPlayerProxyToSpawn()
-		end
-		if self._debugSpawnHandoff then
-			self:_debugSpawnHandoff("begin-session-after-proxy-reset")
 		end
 		self.ActiveActorSlot = 1
 		self:_hideNonCarrierEmbeddedBalls(self.ActiveActorSlot)
@@ -577,21 +479,12 @@ return function(MatchPresentationController, Context)
 
 		if self:_isSessionActive(readySessionId) then
 			if self.PlayerProxy then
-				if self._debugSpawnHandoff then
-					self:_debugSpawnHandoff("intro-ready-before-force-visible", self.PlayerProxy)
-				end
 				ForceModelVisible(self.PlayerProxy)
-				if self._debugSpawnHandoff then
-					self:_debugSpawnHandoff("intro-ready-after-force-visible", self.PlayerProxy)
-				end
 			end
 			self:_setCharacterHidden(true)
 		end
 
 		if self:_isSessionActive(readySessionId) and self._markIntroVisualReady then
-			if self._debugSpawnHandoff then
-				self:_debugSpawnHandoff("intro-ready-mark")
-			end
 			self:_markIntroVisualReady(readySessionId)
 		end
 	end
@@ -600,11 +493,18 @@ return function(MatchPresentationController, Context)
 		local reasonText = tostring(reason or "")
 		local isTournamentContinuation = reasonText == "VictoryContinuation"
 		local isChampionCeremony = reasonText == "ChampionCeremony"
-		local isInPlaceTournamentEnd = isTournamentContinuation or isChampionCeremony
+		local isLegContinuation = reasonText == "LegContinuation"
+		local isInPlaceTournamentEnd = isTournamentContinuation or isChampionCeremony or isLegContinuation
 
 		if isInPlaceTournamentEnd and self.MatchUIController then
 			pcall(function()
-				local statusText = if isChampionCeremony then "" else "Next Round..."
+				local statusText = "Next Round..."
+				if isChampionCeremony then
+					statusText = ""
+				elseif isLegContinuation then
+					statusText = "Preparing Kickoff..."
+				end
+
 				if self.MatchUIController.CutToBlack then
 					self.MatchUIController:CutToBlack(statusText)
 				elseif self.MatchUIController.FadeToBlack then
@@ -617,6 +517,9 @@ return function(MatchPresentationController, Context)
 		self:_clearIntroVisualReady(nil)
 		self.CurrentSessionId = nil
 		self.CurrentPlayerSpawnRootCFrame = nil
+		if Context.MatchSceneQuery and Context.MatchSceneQuery.SetActiveZoneVariationId then
+			Context.MatchSceneQuery.SetActiveZoneVariationId(nil)
+		end
 
 		self:_resumeActorsAfterPreQte()
 		self:_setTimeScale(DEFAULT_TIME_SCALE)

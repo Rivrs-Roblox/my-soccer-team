@@ -28,7 +28,7 @@ local function BuildEnemySlots()
 			Role = "Defender",
 			RandomRadius = 2,
 			SpawnSide = "Left",
-			ApproachMarkerName = "EnemyApproachPointLeft",
+			ApproachMarkerName = "EnemyApproachPoint",
 		}),
 
 		[4] = table.freeze({
@@ -38,7 +38,7 @@ local function BuildEnemySlots()
 			Role = "Defender",
 			RandomRadius = 2,
 			SpawnSide = "Right",
-			ApproachMarkerName = "EnemyApproachPointRight",
+			ApproachMarkerName = "EnemyApproachPoint",
 		}),
 
 		[5] = table.freeze({

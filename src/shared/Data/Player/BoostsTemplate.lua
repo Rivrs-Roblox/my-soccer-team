@@ -28,4 +28,14 @@ return table.freeze({
 		Name = "x2_Pass_Boost",
 		Number = 0,
 	},
+
+	["7"] = {
+		Name = "x2_Stamina_Boost",
+		Number = 0,
+	},
+
+	["8"] = {
+		Name = "x2_Endurance_Boost",
+		Number = 0,
+	},
 })

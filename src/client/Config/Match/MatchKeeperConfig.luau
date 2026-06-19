@@ -24,6 +24,8 @@ local MatchKeeperConfig = {
 	CatchContactMarkerName = "CatchContact",
 	SaveContactMarkerName = "SaveContact",
 	CatchBallHoldDuration = 5.00,
+	CatchShakeStrength = 1.35,
+	CatchShakeDuration = 0.35,
 	CatchKeeperPoseHold = 1.10,
 	KeeperContactFallbackPadding = 0.35,
 
@@ -282,6 +284,26 @@ local MatchKeeperConfig = {
 	FreezeSaveAnimationAtContact = true,
 	SaveAnimationFreezeMinTimePosition = 0.28,
 	SideSaveLandedLift = 0.85,
+
+	-- PBS-style keeper tracking for GoalHold.
+	-- Keeper stays idle until ball is within this radius (studs), then starts dive.
+	GoalHoldKeeperReactRadius = 12,
+	GoalHoldFallbackFreezeAlpha = 0.72,
+	-- How far (studs) in front of KeeperSaveTarget the ball stops at holdPos.
+	-- Must be > GoalForwardAdvance (0.55) so ball lands in front of keeper body, not behind.
+	GoalHoldForwardOffset = 1.75,
+	-- At actual keeper contact, snap the held ball from the authored holdPos to the
+	-- resolved hand/grip position. Small forward offset keeps the ball readable in
+	-- front of the palm instead of being buried in the hand mesh.
+	GoalHoldBallHandForwardOffset = 0.22,
+	GoalHoldCenterBallHandForwardOffset = 0.42,
+	GoalHoldCenterHandForwardOffset = 0.90,
+	GoalHoldCenterHandLiftOffset = 0.08,
+	GoalHoldHandSnapMaxDistance = 12.0,
+	GoalHoldHandSnapBlendDuration = 0.22,
+	GoalHoldHandRetargetMinDuration = 0.16,
+	GoalHoldHandRetargetMaxDuration = 0.32,
+	GoalHoldExtraHoldDuration = 0.25,
 
 	GoalFxEmitCount = 28,
 	DebugReaction = false,

@@ -19,6 +19,7 @@ local FramesConstants = require(StarterPlayer.StarterPlayerScripts.Client.Roact.
 local CustomizeConstants = require(StarterPlayer.StarterPlayerScripts.Client.Roact.Constants.CustomizeConstants)
 local Store = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Store)
 local TeamActions = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Actions.TeamActions)
+local GetStats = require(ReplicatedStorage.Shared.Helpers.SoccerCharacters.GetStats)
 
 function Teams(_, hooks)
 	local UIReducer = RoduxHooks.useSelector(hooks, function(state)
@@ -55,11 +56,12 @@ function Teams(_, hooks)
 				RarityColor = Color3.fromHex("ffffff"),
 			}
 		end
+		local stats = GetStats(charData, InventoryReducer.Accessories)
 		return {
 			Image = UI[charData.Name] or "rbxasset://textures/ui/GuiImagePlaceholder.png",
-			Pass = string.format("%.1f", templateData.Multipliers.Pass),
-			Shoot = string.format("%.1f", templateData.Multipliers.Shoot),
-			Dribble = string.format("%.1f", templateData.Multipliers.Dribble),
+			Pass = string.format("%.1f", stats.Pass),
+			Shoot = string.format("%.1f", stats.Shoot),
+			Dribble = string.format("%.1f", stats.Dribble),
 			Name = templateData.Name,
 			Stars = charData.Level or 1,
 			Color = Color3.fromHex("4688eb"),

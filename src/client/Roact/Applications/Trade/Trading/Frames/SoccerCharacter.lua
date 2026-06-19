@@ -47,9 +47,14 @@ local SOCCER_CHARACTER_THEMES = {
         stroke = Color3.fromHex("c743ff"),
     },
     Legendary = {
-        gradientTop = Color3.fromHex("fff240"),
-        gradientBottom = Color3.fromHex("ff8c27"),
-        stroke = Color3.fromHex("ff9501"),
+        gradientTop = Color3.fromHex("fff677"),
+        gradientBottom = Color3.fromHex("ffa834"),
+        stroke = Color3.fromHex("ffbe3b"),
+    },
+    ["Gold Legendary"] = {
+        gradientTop = Color3.fromHex("8f6f14"),
+        gradientBottom = Color3.fromHex("2d2102"),
+        stroke = Color3.fromHex("42300b"),
     },
     Mythical = {
         gradientTop = Color3.fromHex("ff6347"),
@@ -74,6 +79,14 @@ local function getSoccerCharacterTheme(params: table)
         return theme
     end
 
+    if Colors.Gradients and Colors.Gradients[params.rarity] and Colors.Stroke and Colors.Stroke[params.rarity] then
+        return {
+            gradientTop = Colors.Gradients[params.rarity].startColor,
+            gradientBottom = Colors.Gradients[params.rarity].endColor,
+            stroke = Colors.Stroke[params.rarity],
+        }
+    end
+
     local topColor = params.bg_color or Colors[params.rarity] or Color3.fromRGB(215, 216, 205)
     return {
         gradientTop = topColor,
@@ -96,7 +109,7 @@ return function(params: table)
             my_side = true :: boolean,
         },
     })
-
+--
     local theme = getSoccerCharacterTheme(params)
 
     local NameColor = Color3.fromRGB(255, 255, 255)
@@ -141,7 +154,7 @@ return function(params: table)
 
         UIStroke = Roact.createElement("UIStroke", {
             Color = theme.stroke,
-            Thickness = 3,
+            Thickness = 1.5,
         }),
 
         Icon = Roact.createElement("ImageLabel", {

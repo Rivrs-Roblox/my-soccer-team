@@ -8,17 +8,20 @@ local MatchConstants = require(ReplicatedStorage.Shared.Data.Match.MatchConstant
 local MatchAreaConfig = require(ReplicatedStorage.Shared.Data.Match.MatchAreaConfig)
 local MatchIntroConfig = require(ReplicatedStorage.Shared.Data.Match.MatchIntroConfig)
 local MatchGrounding = require(ReplicatedStorage.Shared.Helpers.Match.MatchGrounding)
+local MatchSceneQuery = require(ReplicatedStorage.Shared.Helpers.Match.MatchSceneQuery)
 local MatchRosterBuilder = require(ReplicatedStorage.Shared.Helpers.Match.MatchRosterBuilder)
 local MatchSequenceBuilder = require(ReplicatedStorage.Shared.Helpers.Match.MatchSequenceBuilder)
 local MatchResolution = require(ReplicatedStorage.Shared.Helpers.Match.MatchResolution)
 local MatchFlowRules = require(ReplicatedStorage.Shared.Helpers.Match.MatchFlowRules)
 local TournamentRewardCalculator = require(ReplicatedStorage.Shared.Domain.Tournament.TournamentRewardCalculator)
+local TournamentConfig = require(ReplicatedStorage.Shared.Domain.Tournament.TournamentConfig)
 local SoccerCharactersTemplate = require(ReplicatedStorage.Shared.Data.Template.SoccerCharacters)
 
 local DataService = nil
 local TrainingService = nil
 local MatchWorldService = nil
 local TournamentService = nil
+local TradeService = nil
 
 local registeredPrompts = {}
 local registeredTouchParts = {}
@@ -29,6 +32,7 @@ local pendingTournamentSources = {}
 local tournamentContinuationReturnCFrames = {}
 local tournamentContinuationReturnSources = {}
 local activeChampionCeremonies = {}
+local nextZoneVariationIndex = 1
 
 local AUTO_BATTLE_TOUCH_DEBOUNCE = 0.85
 local AUTO_BATTLE_TOUCH_PART_NAMES = {
@@ -62,10 +66,6 @@ local RETURN_ATTENDANCE_DISTANCE_TOLERANCE = 3.25
 local CHAMPION_CEREMONY_DURATION_SECONDS = 20
 local CHAMPION_CEREMONY_START_DELAY_SECONDS = 0.30
 local AUTO_BATTLE_ZONE_SCAN_INTERVAL = 0.30
-local DEBUG_RETURN_ATTENDANCE = false
-local DEBUG_CHAMPION_CEREMONY = false
-local DEBUG_SPAWN_HANDOFF = false
-local DEBUG_MATCH_INTRO = MatchIntroConfig.DebugMatchIntro == true
 local MATCH_INTRO_ACK_MAX_WAIT = tonumber(MatchIntroConfig.ServerMaxWaitSeconds) or 8.0
 
 --| Match Service |--
@@ -164,24 +164,56 @@ local function BuildTournamentIntroData(tournamentContext)
 		introData.AwayLogo = tostring(tournamentIntro.AwayLogo or introData.AwayLogo or "")
 		introData.RewardPreview = tournamentIntro.RewardPreview
 		introData.RewardWins = tonumber(tournamentIntro.RewardWins)
+		introData.RewardPerGoalWins = tonumber(tournamentIntro.RewardPerGoalWins)
+		introData.RequiredPlayerGoals = tonumber(tournamentIntro.RequiredPlayerGoals)
 		introData.RewardText = tournamentIntro.RewardText
 	end
 
-	-- Keep bracket and intro scores on one server-side source of truth.
-	-- CurrentScore is the same payload used by TournamentBracketView.CurrentMatch.
-	local currentScore = tournamentContext and tournamentContext.CurrentScore
-	if typeof(currentScore) == "table" then
-		introData.HomeScore = tonumber(currentScore.Home) or introData.HomeScore
-		introData.AwayScore = tonumber(currentScore.Away) or introData.AwayScore
+	-- Multi-leg: aggregate scores are now set by TournamentQuery.BuildMatchContext
+	-- and passed through the Intro table. No need for old DrawScores randomization.
+	-- Only fall back to CurrentScore / DrawScores for legacy non-aggregate matches.
+	local hasAggregate = tournamentContext and tournamentContext.AggregatePlayer ~= nil
+	if not hasAggregate then
+		-- Keep bracket and intro scores on one server-side source of truth.
+		local currentScore = tournamentContext and tournamentContext.CurrentScore
+		if typeof(currentScore) == "table" then
+			introData.HomeScore = tonumber(currentScore.Home) or introData.HomeScore
+			introData.AwayScore = tonumber(currentScore.Away) or introData.AwayScore
+		end
+
+		-- Legacy: randomize initial gameplay score for non-aggregate matches
+		if tournamentContext and introData.HomeScore == 0 and introData.AwayScore == 0 then
+			local drawScores = TournamentConfig.LiveMatch.DrawScores
+			if drawScores and #drawScores > 0 then
+				local seedValue = math.floor(os.clock() * 1000)
+				local index = (seedValue % #drawScores) + 1
+				local score = drawScores[index]
+				introData.HomeScore = score.Home or 0
+				introData.AwayScore = score.Away or 0
+			end
+		end
 	end
 
 	if tournamentContext then
 		introData.RewardPreview = introData.RewardPreview or tournamentContext.RewardPreview
 		introData.RewardWins = tonumber(introData.RewardWins) or tonumber(tournamentContext.RewardWins)
+		introData.RewardPerGoalWins = tonumber(introData.RewardPerGoalWins) or tonumber(tournamentContext.RewardPerGoalWins)
+		introData.RequiredPlayerGoals = tonumber(introData.RequiredPlayerGoals) or tonumber(tournamentContext.RequiredPlayerGoals)
 		introData.RewardText = introData.RewardText or tournamentContext.RewardText
 	end
 
 	return introData
+end
+
+local function SelectZoneVariationId()
+	local variationIds = MatchSceneQuery.GetAvailableZoneVariationIds and MatchSceneQuery.GetAvailableZoneVariationIds() or {}
+	if #variationIds == 0 then
+		return nil
+	end
+
+	local index = ((nextZoneVariationIndex - 1) % #variationIds) + 1
+	nextZoneVariationIndex += 1
+	return variationIds[index]
 end
 
 local function GetCharacterPivot(player)
@@ -499,25 +531,6 @@ local function TeleportCharacterToCFrame(player, targetCFrame, options)
 		return false
 	end
 
-	if DEBUG_SPAWN_HANDOFF then
-		print(string.format(
-			"[SpawnHandoff][ServerTeleport] t=%.3f player=%s label=before target=(%.2f,%.2f,%.2f) final=(%.2f,%.2f,%.2f) keepRootLocked=%s root=(%.2f,%.2f,%.2f) anchored=%s",
-			os.clock(),
-			player.Name,
-			targetCFrame.Position.X,
-			targetCFrame.Position.Y,
-			targetCFrame.Position.Z,
-			finalCFrame.Position.X,
-			finalCFrame.Position.Y,
-			finalCFrame.Position.Z,
-			tostring(options.KeepRootLocked == true),
-			rootPart.Position.X,
-			rootPart.Position.Y,
-			rootPart.Position.Z,
-			tostring(rootPart.Anchored)
-		))
-	end
-
 	RestoreCharacterServerState(player, { StopAnimations = options.StopAnimations == true })
 
 	rootPart.Anchored = true
@@ -542,19 +555,6 @@ local function TeleportCharacterToCFrame(player, targetCFrame, options)
 	else
 		rootPart.Anchored = false
 	end
-	if DEBUG_SPAWN_HANDOFF then
-		print(string.format(
-			"[SpawnHandoff][ServerTeleport] t=%.3f player=%s label=after root=(%.2f,%.2f,%.2f) anchored=%s keepRootLocked=%s",
-			os.clock(),
-			player.Name,
-			rootPart.Position.X,
-			rootPart.Position.Y,
-			rootPart.Position.Z,
-			tostring(rootPart.Anchored),
-			tostring(options.KeepRootLocked == true)
-		))
-	end
-
 	return true, finalCFrame
 end
 
@@ -719,6 +719,12 @@ local function BuildRandomCompanionPivotOrder(seed)
 	return { 2, 3, 4 }
 end
 
+local function IsLegContinuationPayload(payload)
+	local tournament = payload and payload.Tournament
+	local currentLeg = tournament and tonumber(tournament.CurrentLeg)
+	return currentLeg ~= nil and currentLeg > 1
+end
+
 --| Client Functions |--
 function MatchService.Client:StartFtueMatch(player, options)
 	return MatchService:StartFtueMatch(player, options)
@@ -748,6 +754,10 @@ function MatchService.Client:RequestFinishChampionCeremony(player, sessionId)
 	return MatchService:RequestFinishChampionCeremony(player, sessionId)
 end
 
+function MatchService.Client:NotifyGoalCinematicClimax(player, sessionId)
+	return MatchService:NotifyGoalCinematicClimax(player, sessionId)
+end
+
 --| Server Functions |--
 
 function MatchService:CancelPendingTournamentStart(player, options)
@@ -769,19 +779,10 @@ function MatchService:CancelPendingTournamentStart(player, options)
 
 	if options.TeleportToReturnPoint == true then
 		local returnCFrame = nil
-		local returnSourceName = nil
-		returnCFrame, returnSourceName = ResolveBattleReturnCFrame(source)
+		returnCFrame = ResolveBattleReturnCFrame(source)
 
 		if returnCFrame then
-			local returned = ReturnCharacterToOrigin(player, returnCFrame)
-			if DEBUG_RETURN_ATTENDANCE then
-				print(string.format(
-					"[MatchReturn][TournamentClose] player=%s returned=%s target=%s",
-					player.Name,
-					tostring(returned),
-					tostring(returnSourceName or "BattleReturnPoint")
-				))
-			end
+			ReturnCharacterToOrigin(player, returnCFrame)
 		else
 			RestoreCharacterServerState(player, { StopAnimations = true })
 			warn("[MatchReturn][TournamentClose] BattleReturnPoint not found; pending start cleared only.")
@@ -826,6 +827,7 @@ function MatchService:BuildSessionPayload(player)
 	local areaId = GetPlayerAreaId(playerData)
 	local config = MatchAreaConfig[areaId] or MatchAreaConfig[MatchConstants.DEFAULT_AREA_ID]
 	local seed = math.floor(os.clock() * 1000) + player.UserId
+	local zoneVariationId = SelectZoneVariationId()
 
 	local tournamentContext = nil
 	if TournamentService and TournamentService.GetCurrentMatchContext then
@@ -856,6 +858,7 @@ function MatchService:BuildSessionPayload(player)
 		Config = config,
 		Tournament = tournamentContext,
 		CompanionPivotOrder = BuildRandomCompanionPivotOrder(seed),
+		ZoneVariationId = zoneVariationId,
 		CurrentGoals = tonumber(playerData.Goals) or 0,
 		CurrentWins = tonumber(playerData.Wins) or 0,
 		IntroData = BuildTournamentIntroData(tournamentContext),
@@ -944,10 +947,33 @@ function MatchService:_calculateMatchRewardPreview(session)
 		LeagueKey = tournamentContext.LeagueKey or tournamentContext.LeagueId,
 		RoundId = tournamentContext.RoundId,
 		RoundIndex = tournamentContext.RoundIndex,
+		RequiredPlayerGoals = tournamentContext.RequiredPlayerGoals,
 		SuccessfulQteSteps = successfulSteps,
 	})
 
 	return math.max(0, math.floor(tonumber(rewardWins) or 0))
+end
+
+function MatchService:_calculateGoalReward(session)
+	local payload = session and session.Payload or {}
+	local tournamentContext = payload.Tournament or {}
+	local successfulSteps = session and session.SuccessfulQteSteps or {}
+
+	local rewardWins = TournamentRewardCalculator.CalculatePerGoalReward({
+		AreaId = tournamentContext.AreaId or payload.AreaId,
+		LeagueKey = tournamentContext.LeagueKey or tournamentContext.LeagueId,
+		RoundId = tournamentContext.RoundId,
+		RoundIndex = tournamentContext.RoundIndex,
+		RequiredPlayerGoals = tournamentContext.RequiredPlayerGoals,
+		SuccessfulQteSteps = successfulSteps,
+	})
+
+	return math.max(0, math.floor(tonumber(rewardWins) or 0))
+end
+
+function MatchService:_usesPerGoalTournamentReward(session): boolean
+	local tournamentContext = session and session.Payload and session.Payload.Tournament
+	return type(tournamentContext) == "table" and tonumber(tournamentContext.RequiredPlayerGoals) ~= nil
 end
 
 function MatchService:_awardStepProgress(player, session, resultPayload)
@@ -964,20 +990,57 @@ function MatchService:_awardStepProgress(player, session, resultPayload)
 		session.SuccessfulQteSteps[stepIndex] = true
 	end
 
-	-- Match Wins are granted once in _finishMatch(). This keeps tournament
-	-- reward authority server-side and prevents per-QTE double reward.
-
-	-- Goals are still a separate progression metric and are awarded only when
-	-- the successful action is the final Shoot. Wins are only previewed here;
-	-- actual Wins are granted once in _finishMatch().
+	-- Wins and Goals are granted only when the successful action is the final Shoot.
+	-- Tournament Wins are paid per goal, using the round target as the divisor.
 	if resultPayload.Action == "Shoot" then
-		resultPayload.MatchRewardPreviewWins = self:_calculateMatchRewardPreview(session)
-		local successGoals = pcall(function()
-			return DataService:ChangeValue(player, "Goals", 1, true)
-		end)
+		local payload = session and session.Payload or {}
+		local actorSlot = tonumber(resultPayload.ActorSlot)
+		local actorEntry = actorSlot and payload.Roster and payload.Roster[actorSlot] or nil
+		local introData = payload.IntroData
 
-		if successGoals then
-			resultPayload.AwardedGoals = 1
+		resultPayload.AreaId = payload.AreaId
+		resultPayload.ScorerDisplayName = tostring(resultPayload.ActorDisplayName or (actorEntry and actorEntry.DisplayName) or player.Name)
+		resultPayload.ScorerActorType = actorEntry and actorEntry.ActorType or nil
+		resultPayload.MatchStartMinute = introData and tonumber(introData.MatchMinute) or nil
+		resultPayload.MatchRewardPreviewWins = self:_calculateMatchRewardPreview(session)
+		local goalRewardWins = if self:_usesPerGoalTournamentReward(session) then self:_calculateGoalReward(session) else 0
+		resultPayload.GoalRewardWins = goalRewardWins
+
+		resultPayload.AwardedWins = goalRewardWins
+		session.AwardedWins = (session.AwardedWins or 0) + goalRewardWins
+
+		resultPayload.AwardedGoals = 1
+		session.MatchGoals = (session.MatchGoals or 0) + 1
+
+		session.PendingGoalRewardWins = (session.PendingGoalRewardWins or 0) + goalRewardWins
+		session.PendingGoalRewardGoals = (session.PendingGoalRewardGoals or 0) + 1
+	end
+end
+
+function MatchService:_grantPendingGoalReward(player, session)
+	if not session then return end
+	
+	local winsToGrant = session.PendingGoalRewardWins or 0
+	local goalsToGrant = session.PendingGoalRewardGoals or 0
+	
+	session.PendingGoalRewardWins = 0
+	session.PendingGoalRewardGoals = 0
+
+	if winsToGrant > 0 then
+		local successWins = pcall(function()
+			return DataService:ChangeValue(player, "Wins", winsToGrant, true)
+		end)
+		if not successWins then
+			warn("[MatchService] Failed to grant pending goal reward Wins=" .. tostring(winsToGrant))
+		end
+	end
+
+	if goalsToGrant > 0 then
+		local successGoals, err = pcall(function()
+			return DataService:ChangeValue(player, "Goals", goalsToGrant, true)
+		end)
+		if not successGoals then
+			warn("[MatchService] ChangeValue for pending Goals failed:", err)
 		end
 	end
 end
@@ -985,6 +1048,11 @@ end
 function MatchService:_grantMatchReward(player, session, reason)
 	if not session or session.RewardGranted == true then
 		return 0
+	end
+
+	if self:_usesPerGoalTournamentReward(session) then
+		session.RewardGranted = true
+		return math.max(0, math.floor(tonumber(session.AwardedWins) or 0))
 	end
 
 	session.RewardGranted = true
@@ -1065,6 +1133,61 @@ function MatchService:_completeVictoryForTournamentContinuation(player, session)
 	end)
 end
 
+-- Multi-leg: seamless continuation to next leg within the same round.
+-- Skips bracket preview and directly starts the next match.
+function MatchService:_completeVictoryForLegContinuation(player, session)
+	local liveSession = activeSessions[player]
+	if liveSession ~= session then
+		return
+	end
+
+	self:_cancelSessionQte(session)
+	RestoreCharacterServerState(player, { StopAnimations = true })
+
+	-- Store return CFrame for post-tournament return
+	if session.OriginalCFrame then
+		tournamentContinuationReturnCFrames[player] = session.OriginalCFrame
+	end
+	tournamentContinuationReturnSources[player] = session.ReturnTargetSource
+
+	touchDebounces[player] = nil
+	player:SetAttribute("IsInMatch", false)
+	activeSessions[player] = nil
+	pendingTransitions[player] = nil
+
+	-- Signal client that this is a leg continuation (no bracket preview)
+	self.Client.MatchSessionEnded:Fire(player, "LegContinuation", session.SessionId)
+
+	-- Auto-start the next leg after a short delay
+	task.delay(0.50, function()
+		if activeSessions[player] or pendingTransitions[player] then
+			return
+		end
+
+		-- Set pending start so _tryStartMatch can proceed
+		if TournamentService and TournamentService.SetPendingStart then
+			TournamentService:SetPendingStart(player, true)
+		end
+
+		-- Directly start the next match (same as StartConfirmedTournamentMatch but inline)
+		local returnCFrameOverride = tournamentContinuationReturnCFrames[player]
+		local returnTargetSourceOverride = tournamentContinuationReturnSources[player]
+		tournamentContinuationReturnCFrames[player] = nil
+		tournamentContinuationReturnSources[player] = nil
+
+		if TournamentService and TournamentService.SetPendingStart then
+			TournamentService:SetPendingStart(player, false)
+		end
+
+		self:_tryStartMatch(player, nil, {
+			SilentBusy = false,
+			FromTournament = true,
+			ReturnCFrameOverride = returnCFrameOverride,
+			ReturnTargetSourceOverride = returnTargetSourceOverride,
+		})
+	end)
+end
+
 function MatchService:RequestFinishChampionCeremony(player, sessionId)
 	return self:_finishChampionCeremony(player, sessionId, "Skip")
 end
@@ -1099,10 +1222,6 @@ function MatchService:_completeVictoryForTournamentChampion(player, session)
 	activeSessions[player] = nil
 	pendingTransitions[player] = nil
 
-	if DEBUG_CHAMPION_CEREMONY then
-		print("[MatchService] ChampionCeremony", player.Name, tostring(session.SessionId))
-	end
-
 	-- Final win is not a bracket continuation. End battle presentation in-place,
 	-- clear enemies, then run the championship ceremony before returning.
 	self.Client.MatchSessionEnded:Fire(player, "ChampionCeremony", session.SessionId)
@@ -1120,6 +1239,7 @@ function MatchService:_completeVictoryForTournamentChampion(player, session)
 
 		self.Client.ChampionCeremonyStarted:Fire(player, {
 			SessionId = session.SessionId,
+			AreaId = session.Payload and session.Payload.AreaId or "Area01",
 			DurationSeconds = CHAMPION_CEREMONY_DURATION_SECONDS,
 			CeremonyCFrame = ceremonyCFrame,
 			CupName = session.Payload and session.Payload.Tournament and session.Payload.Tournament.CupName
@@ -1160,22 +1280,6 @@ function MatchService:_fireReturnAttendance(player, session, returned, reason)
 	end
 
 	self.Client.MatchReturnAttendance:Fire(player, payload)
-
-	if DEBUG_RETURN_ATTENDANCE then
-		local distanceText = payload.DistanceToOrigin and string.format("%.2f", payload.DistanceToOrigin) or "nil"
-		print(
-			string.format(
-				"[MatchReturn][Server] player=%s returned=%s character=%s root=%s anchored=%s distance=%s reason=%s",
-				player and player.Name or "nil",
-				tostring(payload.Returned),
-				tostring(payload.CharacterExists),
-				tostring(payload.RootExists),
-				tostring(payload.RootAnchored),
-				distanceText,
-				tostring(payload.Reason)
-			)
-		)
-	end
 end
 
 function MatchService:_finishChampionCeremony(player, sessionId, finishReason)
@@ -1252,14 +1356,6 @@ function MatchService:_finishChampionCeremony(player, sessionId, finishReason)
 		FinishReason = finishReason or "Auto",
 	})
 
-	if DEBUG_CHAMPION_CEREMONY then
-		print(
-			"[MatchService] ChampionCeremonyFinished",
-			player.Name,
-			tostring(record.SessionId),
-			tostring(finishReason or "Auto")
-		)
-	end
 	return true
 end
 
@@ -1279,19 +1375,10 @@ function MatchService:_completeSessionNow(player, reason)
 	local returnCFrame = session.OriginalCFrame
 
 	if typeof(returnCFrame) ~= "CFrame" then
-		local fallbackReturnCFrame, fallbackReturnSource = ResolveBattleReturnCFrame(session.ReturnTargetSource)
+		local fallbackReturnCFrame = ResolveBattleReturnCFrame(session.ReturnTargetSource)
 		if typeof(fallbackReturnCFrame) == "CFrame" then
 			returnCFrame = fallbackReturnCFrame
 			session.OriginalCFrame = fallbackReturnCFrame
-			if DEBUG_RETURN_ATTENDANCE then
-				print(
-					string.format(
-						"[MatchReturn][Server] using fallback return point player=%s target=%s",
-						player.Name,
-						tostring(fallbackReturnSource or "BattleReturnPoint")
-					)
-				)
-			end
 		else
 			warn("[MatchService] Missing return CFrame; cannot auto-return player:", player.Name)
 		end
@@ -1373,18 +1460,19 @@ function MatchService:_finishMatch(player, reason)
 	session.IsFinishing = true
 	self:_cancelSessionQte(session)
 
-	if reason == "Victory" then
-		SendFeedback(self, player, "SUCCESS", "Goal! Match won.")
-	else
+	if reason ~= "Victory" then
 		SendFeedback(self, player, "ERROR", "Possession lost.")
 	end
 
-	self:_grantMatchReward(player, session, reason)
-
 	local tournamentPayload = nil
 	if TournamentService and (reason == "Victory" or reason == "Defeat") then
+		local introData = session.Payload and session.Payload.IntroData
+		local initHomeScore = introData and tonumber(introData.HomeScore) or 0
+		local initAwayScore = introData and tonumber(introData.AwayScore) or 0
+		local playerGoals = initHomeScore + (session.MatchGoals or 0)
+		local opponentGoals = if reason == "Victory" then initAwayScore else (initAwayScore + 1)
 		local ok, result = pcall(function()
-			return TournamentService:ApplyMatchResult(player, reason == "Victory")
+			return TournamentService:ApplyMatchResult(player, reason == "Victory", playerGoals, opponentGoals)
 		end)
 
 		if ok then
@@ -1392,6 +1480,19 @@ function MatchService:_finishMatch(player, reason)
 		else
 			warn("[MatchService] Failed to apply tournament result:", result)
 		end
+	end
+
+	-- Multi-leg: check if this was a leg win (round not yet complete)
+	local isLegWin = type(tournamentPayload) == "table" and tournamentPayload.LegResult == "LegWin"
+
+	if reason == "Victory" and not isLegWin then
+		SendFeedback(self, player, "SUCCESS", "Goal! Match won.")
+	end
+
+	-- Legacy match reward is still granted at the end; tournament target rounds
+	-- already pay Wins per successful goal.
+	if not isLegWin then
+		self:_grantMatchReward(player, session, reason)
 	end
 
 	local tournamentStatus = type(tournamentPayload) == "table" and tostring(tournamentPayload.Status or "Active") or ""
@@ -1404,6 +1505,7 @@ function MatchService:_finishMatch(player, reason)
 	-- the final stage from stale/incorrect champion payloads after R16/QF/SF wins.
 	local shouldStartChampionCeremony = reason == "Victory" and tournamentStatus == "Champion" and isFinalRoundSession
 	local shouldContinueTournament = reason == "Victory"
+		and not isLegWin
 		and (tournamentStatus == "Active" or (tournamentStatus == "Champion" and not isFinalRoundSession))
 
 	if reason == "Victory" and tournamentStatus == "Champion" and not isFinalRoundSession then
@@ -1423,7 +1525,9 @@ function MatchService:_finishMatch(player, reason)
 			return
 		end
 
-		if shouldStartChampionCeremony then
+		if isLegWin then
+			self:_completeVictoryForLegContinuation(player, session)
+		elseif shouldStartChampionCeremony then
 			self:_completeVictoryForTournamentChampion(player, session)
 		elseif shouldContinueTournament then
 			self:_completeVictoryForTournamentContinuation(player, session)
@@ -1569,7 +1673,7 @@ function MatchService:_armPresentationWatchdog(player, session, phase, stepIndex
 			return
 		end
 
-		print(
+		warn(
 			string.format(
 				"[MatchService] Presentation watchdog reached phase=%s step=%s for %s",
 				tostring(phase),
@@ -1666,6 +1770,7 @@ function MatchService:_handlePostActionReady(player, session, resultPayload)
 	self:_clearPendingPresentation(liveSession)
 
 	if resultPayload.Succeeded then
+		self:_grantPendingGoalReward(player, liveSession)
 		self:_applyPostStepFlowRules(liveSession, resultPayload)
 
 		if liveSession.CurrentStepIndex >= #liveSession.Payload.Sequence then
@@ -1723,16 +1828,6 @@ function MatchService:_releaseIntroGate(player, session, source)
 	liveSession.IntroCompleted = true
 	liveSession.IntroReleaseToken = (liveSession.IntroReleaseToken or 0) + 1
 
-	if DEBUG_MATCH_INTRO then
-		print(
-			string.format(
-				"[MatchIntro] presentation released session=%s source=%s",
-				tostring(liveSession.SessionId),
-				tostring(source or "Client")
-			)
-		)
-	end
-
 	task.defer(function()
 		if activeSessions[player] == liveSession and not liveSession.IsFinishing then
 			self:_beginNextStep(player)
@@ -1753,6 +1848,20 @@ function MatchService:NotifyMatchIntroCompleted(player, sessionId)
 	end
 
 	return self:_releaseIntroGate(player, session, "Client")
+end
+
+function MatchService:NotifyGoalCinematicClimax(player, sessionId)
+	local session = self:_getActiveSession(player)
+	if not session then
+		return false
+	end
+
+	if tostring(session.SessionId) ~= tostring(sessionId) then
+		return false
+	end
+
+	self:_grantPendingGoalReward(player, session)
+	return true
 end
 
 function MatchService:NotifyPresentationReady(player, sessionId, stepIndex, phase)
@@ -2057,6 +2166,12 @@ function MatchService:_tryStartMatch(player, source, options)
 		return false
 	end
 
+	if TradeService and TradeService.CancelPlayerActivityForMatch then
+		pcall(function()
+			TradeService:CancelPlayerActivityForMatch(player)
+		end)
+	end
+
 	local returnCFrame = nil
 	local returnSource = nil
 
@@ -2067,17 +2182,6 @@ function MatchService:_tryStartMatch(player, source, options)
 	else
 		returnCFrame, returnSource = ResolveBattleReturnCFrame(source)
 		returnCFrame = returnCFrame or GetCharacterPivot(player)
-	end
-
-	if DEBUG_RETURN_ATTENDANCE then
-		print(
-			string.format(
-				"[MatchReturn][Server] return target source=%s fallbackOriginal=%s player=%s",
-				tostring(returnSource),
-				tostring(returnSource == nil),
-				player and player.Name or "nil"
-			)
-		)
 	end
 
 	pendingTransitions[player] = {
@@ -2094,7 +2198,11 @@ function MatchService:_tryStartMatch(player, source, options)
 	self.Client.MatchTransitionRequested:Fire(
 		player,
 		"Enter",
-		{ SessionId = payload.SessionId, AreaId = payload.AreaId }
+		{
+			SessionId = payload.SessionId,
+			AreaId = payload.AreaId,
+			IsLegContinuation = IsLegContinuationPayload(payload),
+		}
 	)
 
 	task.delay(MatchConstants.ENTER_TRANSITION_TIMEOUT, function()
@@ -2138,7 +2246,8 @@ function MatchService:ConfirmTransitionReady(player, sessionId)
 	transition.Confirmed = true
 
 	if transition.Mode == "Enter" then
-		local playerSpawnCFrame = MatchWorldService:GetPlayerSpawnCFrame()
+		local zoneVariationId = transition.Payload and transition.Payload.ZoneVariationId or nil
+		local playerSpawnCFrame = MatchWorldService:GetPlayerSpawnCFrame(zoneVariationId)
 		if not playerSpawnCFrame then
 			pendingTransitions[player] = nil
 			SendFeedback(self, player, "ERROR", "PlayerSpawn is missing.")
@@ -2160,6 +2269,9 @@ function MatchService:ConfirmTransitionReady(player, sessionId)
 
 		transition.Payload.PlayerSpawnCFrame = resolvedPlayerSpawnCFrame or playerSpawnCFrame
 
+		local shouldWaitForIntro = MatchIntroConfig.Enabled ~= false
+			and not IsLegContinuationPayload(transition.Payload)
+
 		activeSessions[player] = {
 			SessionId = transition.SessionId,
 			Payload = transition.Payload,
@@ -2172,6 +2284,7 @@ function MatchService:ConfirmTransitionReady(player, sessionId)
 			QteToken = 0,
 			CurrentBallOwnerSlot = 1,
 			IsFinishing = false,
+			MatchGoals = 0,
 
 			PendingPresentationPhase = nil,
 			PendingPresentationStepIndex = nil,
@@ -2180,8 +2293,8 @@ function MatchService:ConfirmTransitionReady(player, sessionId)
 			PendingQteToken = nil,
 			PendingResultPayload = nil,
 
-			WaitingForIntro = MatchIntroConfig.Enabled ~= false,
-			IntroCompleted = false,
+			WaitingForIntro = shouldWaitForIntro,
+			IntroCompleted = not shouldWaitForIntro,
 			IntroReleaseToken = 0,
 		}
 
@@ -2190,10 +2303,6 @@ function MatchService:ConfirmTransitionReady(player, sessionId)
 
 		local session = activeSessions[player]
 		if session and session.WaitingForIntro then
-			if DEBUG_MATCH_INTRO then
-				print(string.format("[MatchIntro] presentation gated session=%s", tostring(session.SessionId)))
-			end
-
 			local introToken = (session.IntroReleaseToken or 0) + 1
 			session.IntroReleaseToken = introToken
 
@@ -2238,6 +2347,16 @@ function MatchService:ConfirmTransitionReady(player, sessionId)
 
 		self:_cancelSessionQte(session)
 		session.IsFinishing = true
+
+		if TournamentService and (leaveReason == "ManualExit" or leaveReason == "Defeat") then
+			local ok, result = pcall(function()
+				return TournamentService:ApplyMatchResult(player, false, session.MatchGoals, nil)
+			end)
+			if not ok then
+				warn("[MatchService] Failed to apply tournament defeat on leave:", result)
+			end
+		end
+
 		self:_completeSessionNow(player, leaveReason)
 		return true
 	end
@@ -2306,6 +2425,13 @@ function MatchService:KnitStart()
 	end)
 	if tournamentOk then
 		TournamentService = tournamentService
+	end
+
+	local tradeOk, tradeService = pcall(function()
+		return Knit.GetService("TradeService")
+	end)
+	if tradeOk then
+		TradeService = tradeService
 	end
 
 	self:RegisterBattleZonePrompts()

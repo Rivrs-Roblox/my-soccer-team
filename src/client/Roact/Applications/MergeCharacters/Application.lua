@@ -39,8 +39,8 @@ local Frames = script.Parent.Frames
 local SoccerCharacterCard = require(Frames.SoccerCharacterCard)
 
 function MergeCharactersApp(_, hooks)
-	local UIReducer = RoduxHooks.useSelector(hooks, function(state)
-		return state.UIReducer
+	local currentUI = RoduxHooks.useSelector(hooks, function(state)
+		return state.UIReducer.CurrentUI
 	end)
 	local InventoryReducer = RoduxHooks.useSelector(hooks, function(state)
 		return state.InventoryReducer
@@ -65,6 +65,7 @@ function MergeCharactersApp(_, hooks)
 		end
 	end
 
+
 	hooks.useEffect(function()
 		local changed = false
 		local newSelected = table.clone(selectedIds)
@@ -79,44 +80,59 @@ function MergeCharactersApp(_, hooks)
 		end
 	end, { InventoryReducer.SoccerCharacters, selectedIds })
 
+	hooks.useEffect(function()
+		if currentUI ~= FramesConstants.MergeCharacters then
+			setSelectedIds({})
+			setSearchText("")
+		end
+	end, { currentUI or "" })
+
 	local requiredAmount = targetLevel and MergeRequirements.REQUIREMENTS[targetLevel] or math.huge
 
-	local equippedIds = {}
-	if TeamReducer and TeamReducer.EquippedSoccerCharacters then
-		for _, id in pairs(TeamReducer.EquippedSoccerCharacters) do
-			equippedIds[tostring(id)] = true
+	local equippedIds = hooks.useMemo(function()
+		local ids = {}
+		if TeamReducer and TeamReducer.EquippedSoccerCharacters then
+			for _, id in pairs(TeamReducer.EquippedSoccerCharacters) do
+				ids[tostring(id)] = true
+			end
 		end
-	end
+		return ids
+	end, { TeamReducer and TeamReducer.EquippedSoccerCharacters })
 
 	-- Filter and map characters
-	local sortedChars = {}
-	for id, char in pairs(InventoryReducer.SoccerCharacters) do
-		if char.Level < MergeRequirements.MAX_LEVEL and not equippedIds[tostring(id)] then
-			if searchText == "" or string.find(string.lower(char.Name), string.lower(searchText)) then
-				local templateData = Template.SoccerCharacters[char.Name]
-				if templateData then
-					table.insert(sortedChars, { id = id, char = char, template = templateData })
+	local sortedChars = hooks.useMemo(function()
+		local chars = {}
+		for id, char in pairs(InventoryReducer.SoccerCharacters or {}) do
+			if char.Level < MergeRequirements.MAX_LEVEL and not equippedIds[tostring(id)] then
+				if searchText == "" or string.find(string.lower(char.Name), string.lower(searchText)) then
+					local templateData = Template.SoccerCharacters[char.Name]
+					if templateData then
+						local stats = GetStats(char, InventoryReducer.Accessories)
+						table.insert(chars, { id = id, char = char, template = templateData, stats = stats })
+					end
 				end
 			end
 		end
-	end
 
-	table.sort(sortedChars, function(a, b)
-		local rarityA = Template.RarityPriority[a.template.Rarity or "Common"] or 100
-		local rarityB = Template.RarityPriority[b.template.Rarity or "Common"] or 100
+		table.sort(chars, function(a, b)
+			local rarityA = Template.RarityPriority[a.template.Rarity or "Common"] or 100
+			local rarityB = Template.RarityPriority[b.template.Rarity or "Common"] or 100
 
-		if rarityA ~= rarityB then
-			return rarityA < rarityB
-		end
-
-		if a.char.Name == b.char.Name then
-			if a.char.Level == b.char.Level then
-				return a.id < b.id
+			if rarityA ~= rarityB then
+				return rarityA < rarityB
 			end
-			return a.char.Level > b.char.Level
-		end
-		return a.char.Name < b.char.Name
-	end)
+
+			if a.char.Name == b.char.Name then
+				if a.char.Level == b.char.Level then
+					return a.id < b.id
+				end
+				return a.char.Level > b.char.Level
+			end
+			return a.char.Name < b.char.Name
+		end)
+
+		return chars
+	end, { InventoryReducer.SoccerCharacters, InventoryReducer.Accessories, equippedIds, searchText })
 
 	local numCards = #sortedChars
 	local rows = math.max(1, math.ceil(numCards / 5))
@@ -142,7 +158,7 @@ function MergeCharactersApp(_, hooks)
 		local char = data.char
 		local templateData = data.template
 
-		local stats = GetStats(char, InventoryReducer.Accessories)
+		local stats = data.stats
 
 		local isSelected = selectedIds[id] ~= nil
 		local canSelect = false
@@ -187,7 +203,7 @@ function MergeCharactersApp(_, hooks)
 	end
 
 	return Roact.createElement("Frame", {
-		Visible = UIReducer.CurrentUI == FramesConstants.MergeCharacters,
+		Visible = currentUI == FramesConstants.MergeCharacters,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundTransparency = 1,
 		Position = UDim2.fromScale(0.5, 0.5),

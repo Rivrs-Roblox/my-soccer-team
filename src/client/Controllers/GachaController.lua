@@ -80,6 +80,15 @@ function GachaController:Open(items, type, category)
 	self.Opening = false
 end
 
+function GachaController:SkipActiveAnimation()
+	table.clear(self.Queue)
+	local skipped = Gacha.SkipActive()
+	if skipped then
+		self.Opening = false
+	end
+	return skipped
+end
+
 --|| Knit Lifecycle ||--
 function GachaController:KnitInit()
 	GachaService = Knit.GetService("GachaService")

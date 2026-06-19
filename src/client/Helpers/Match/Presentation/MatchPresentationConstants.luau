@@ -1,14 +1,12 @@
 local Constants = {
 	PLAYER_PROXY_NAME = "LocalMatchPlayerProxy",
 	PRESENTATION_FOLDER_NAME = "LocalMatchPresentationRuntime",
-	DEBUG_SPAWN_HANDOFF = false,
-
 	ACTION_SPEEDS = {
 		Approach = {
 			-- Keep attacks fast and defenders visibly pressing.
 			Dribble = { Actor = 23.0, Enemy = 20.5 },
 			Pass = { Actor = 18.0, Enemy = 21.0 },
-			Shoot = { Actor = 11.8, Enemy = 10.8 },
+			Shoot = { Actor = 23.6, Enemy = 10.8 },
 			Default = { Actor = 17.0, Enemy = 19.0 },
 		},
 
@@ -17,6 +15,7 @@ local Constants = {
 			Default = { Actor = 16.0, Enemy = 13.5 },
 		},
 	},
+
 
 	THRESHOLDS = {
 		ActorArrive = 0.45,
@@ -31,13 +30,13 @@ local Constants = {
 		ActorSprintFarMultiplier = 1.55,
 
 		EnemySprintFarThreshold = 16.0,
-		EnemySprintFarMultiplier = 2.10,
+		EnemySprintFarMultiplier = 2.94, -- 4.20 × 0.7
 		EnemySprintMidThreshold = 7.0,
-		EnemySprintMidMultiplier = 1.55,
+		EnemySprintMidMultiplier = 2.48, -- 3.10 × 0.8
 
 		EnemyPressureSlowdownDistance = 3.6,
-		EnemyPressureCloseMultiplier = 1.0,
-		EnemyPressureMaxSpeed = 36.0,
+		EnemyPressureCloseMultiplier = 1.2, -- 1.2x dari base speed (jarak dekat)
+		EnemyPressureMaxSpeed = 80.0, -- dinaikkan agar cap tidak memblokir sprint jauh
 	},
 
 	BALL_TRAVEL = {
@@ -48,6 +47,8 @@ local Constants = {
 
 	CUTSCENE_ACTOR_COLLISION_GROUP = "CutsceneActors",
 	DEFAULT_TIME_SCALE = 1.0,
+	QTE_SLOWMO_TIME_SCALE = 0.1,
+	QTE_SLOWMO_ANIMATION_SPEED = 0.1,
 
 	-- // [ APPROACH / QTE ] // --
 

@@ -10,6 +10,7 @@ local Knit = require(Packages:WaitForChild("Knit"))
 
 local MatchConstants = require(ReplicatedStorage.Shared.Data.Match.MatchConstants)
 local TeamLogoConfig = require(ReplicatedStorage.Shared.Data.TeamLogoConfig)
+local PlayerTeamIdentity = require(script.Parent.Parent.Helpers.PlayerTeamIdentity)
 local UIJuice = require(script.Parent.Parent.Helpers.UIJuice)
 
 local helpers =  ReplicatedStorage.Shared.Helpers
@@ -17,12 +18,14 @@ local formatnumber = require(helpers.Numbers.FormatNumber)
 
 local LocalPlayer = Players.LocalPlayer
 
-local PLAYER_TEAM_NAME = "FC Rivrs"
+local PLAYER_TEAM_NAME = "Player"
 local PLAYER_TEAM_LOGO = "rbxassetid://81212587492189"
 local BROADCAST_HUD_ENABLED = true
 local BROADCAST_CLOCK_REAL_SECONDS_PER_MATCH_MINUTE = 5
 local BROADCAST_CLOCK_START_MINUTE = 85
 local QTE_RESULT_BANNER_HOLD = 0.7
+local QTE_BROADCAST_CLOCK_TIME_SCALE = 0.1
+local GOAL_SCORER_PANEL_HOLD_SECONDS = 3.2
 
 local MIDDLE_START = 0.18
 local MIDDLE_END = 0.82
@@ -170,7 +173,11 @@ local function GetIntroDataFromPayload(payload)
 	return {}
 end
 
-local function ResolveTeamCode(areaId, teamName, fallback)
+local function ResolveTeamCode(areaId, teamName, fallback, isPlayer)
+	if isPlayer then
+		return PlayerTeamIdentity.GetShortName(fallback)
+	end
+
 	if TeamLogoConfig and TeamLogoConfig.GetTeamShortName then
 		local code = TeamLogoConfig.GetTeamShortName(tostring(areaId or "Area01"), tostring(teamName or ""))
 		if type(code) == "string" and code ~= "" then
@@ -182,17 +189,14 @@ local function ResolveTeamCode(areaId, teamName, fallback)
 end
 
 local function ResolveTeamLogo(areaId, teamName, providedLogo, isPlayer)
+	if isPlayer then
+		return PlayerTeamIdentity.GetThumbnail(PLAYER_TEAM_LOGO)
+	end
+
 	local logo = NormalizeAssetId(providedLogo)
 	local isPlaceholder = logo == "" or logo == "rbxassetid://0" or string.find(logo, "000000", 1, true)
 	if not isPlaceholder then
 		return logo
-	end
-
-	if isPlayer then
-		if TeamLogoConfig and TeamLogoConfig.GetPlayerLogo then
-			return TeamLogoConfig.GetPlayerLogo()
-		end
-		return PLAYER_TEAM_LOGO
 	end
 
 	if TeamLogoConfig and TeamLogoConfig.GetTeamLogo then
@@ -207,6 +211,11 @@ end
 
 local function FormatBroadcastClock(minute, second)
 	return string.format("%02d:%02d", tonumber(minute) or 0, tonumber(second) or 0)
+end
+
+local function FormatGoalMinute(totalSeconds)
+	local minute = math.max(0, math.floor((tonumber(totalSeconds) or 0) / 60))
+	return string.format("%d'", minute)
 end
 
 local function SetImageIfFound(instance, imageId)
@@ -316,6 +325,23 @@ local function SetImageFromSource(target, source)
 		target.Visible = true
 		target.ImageTransparency = 0
 	end
+end
+
+local function SetPlayerImageIfMissing(target)
+	if target and (target:IsA("ImageLabel") or target:IsA("ImageButton")) then
+		target.Image = PlayerTeamIdentity.GetThumbnail(PLAYER_TEAM_LOGO)
+		target.Visible = true
+		target.ImageTransparency = 0
+	end
+end
+
+local function ResolvePlayerTeamName(value)
+	local text = tostring(value or "")
+	if text == "" or text == "FC Rivrs" or text == "Rivrs FC" then
+		return PlayerTeamIdentity.GetName(PLAYER_TEAM_NAME)
+	end
+
+	return text
 end
 
 local function IsExcellentTier(qteTier)
@@ -942,12 +968,29 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 		return
 	end
 
+	-- Save the original Size and Position if not already saved
+	if not self._centerPopupOriginalSize then
+		self._centerPopupOriginalSize = popup.Size
+		self._centerPopupOriginalPosition = popup.Position
+		self._centerPopupOriginalFont = popup.Font
+		self._centerPopupOriginalTextScaled = popup.TextScaled
+	end
+
 	if text == nil or text == "" then
 		local oldText = popup.Text
 		if oldText == "" or not popup.Visible then
 			popup.Visible = false
 			popup.Text = ""
 			UIJuice.Cancel(popup)
+			-- Restore original scale
+			if self._centerPopupOriginalSize then
+				popup.Size = self._centerPopupOriginalSize
+				popup.Position = self._centerPopupOriginalPosition
+				popup.AnchorPoint = Vector2.new(0.5, 0)
+				popup.Rotation = 0
+				popup.Font = self._centerPopupOriginalFont
+				popup.TextScaled = self._centerPopupOriginalTextScaled
+			end
 			return
 		end
 
@@ -960,6 +1003,15 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 			end
 
 			popup.Text = ""
+			-- Restore original scale
+			if self._centerPopupOriginalSize then
+				popup.Size = self._centerPopupOriginalSize
+				popup.Position = self._centerPopupOriginalPosition
+				popup.AnchorPoint = Vector2.new(0.5, 0)
+				popup.Rotation = 0
+				popup.Font = self._centerPopupOriginalFont
+				popup.TextScaled = self._centerPopupOriginalTextScaled
+			end
 		end)
 		return
 	end
@@ -971,23 +1023,93 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 	popup.TextStrokeTransparency = 0.12
 	popup.Visible = true
 
+	if text == "GOAL!" then
+		-- Make it 2.8x bigger and shift position slightly to stay centered
+		popup.Size = UDim2.fromScale(
+			self._centerPopupOriginalSize.X.Scale * 2.8,
+			self._centerPopupOriginalSize.Y.Scale * 2.8
+		)
+		popup.Position = UDim2.new(
+			0.5, 0,
+			self._centerPopupOriginalPosition.Y.Scale + 0.05, 0
+		)
+		popup.AnchorPoint = Vector2.new(0.5, 0.5)
+		popup.Rotation = -6 -- Dynamic tilt
+		popup.Font = Enum.Font.GothamBlack
+		popup.TextScaled = true
+
+		-- Spawn UI particles/confetti!
+		self:_spawnUiGoalParticles(popup)
+
+		-- Second confetti burst after 0.8s for a sustained celebration feel
+		local goalBurstToken = myToken
+		task.delay(0.8, function()
+			if goalBurstToken ~= self._centerPopupToken then return end
+			if popup and popup.Visible then
+				self:_spawnUiGoalParticles(popup)
+			end
+		end)
+	else
+		-- Reset to original size for other popups (PERFECT, GOOD, etc.)
+		popup.Size = self._centerPopupOriginalSize
+		popup.Position = self._centerPopupOriginalPosition
+		popup.AnchorPoint = Vector2.new(0.5, 0)
+		popup.Rotation = 0
+		popup.Font = self._centerPopupOriginalFont
+		popup.TextScaled = self._centerPopupOriginalTextScaled
+	end
+
 	-- Some artist labels contain UIGradient/UIStroke descendants. Force them to
 	-- follow the result color so SUCCESS does not stay dark green/purple.
 	for _, descendant in ipairs(popup:GetDescendants()) do
 		if descendant:IsA("UIGradient") then
-			descendant.Color = ColorSequence.new(popupColor)
+			if text == "GOAL!" then
+				-- A gorgeous orange-gold-yellow gradient sequence for a festive feel
+				descendant.Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 120, 0)),    -- Orange/Dark Gold
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 225, 30)),  -- Bright Gold
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 180))   -- Light Gold
+				})
+			else
+				descendant.Color = ColorSequence.new(popupColor)
+			end
 		elseif descendant:IsA("UIStroke") then
-			descendant.Color = Color3.fromRGB(12, 18, 40)
-			descendant.Transparency = 0.12
+			if text == "GOAL!" then
+				if not descendant:GetAttribute("OrigThickness") then
+					descendant:SetAttribute("OrigThickness", descendant.Thickness)
+				end
+				if not descendant:GetAttribute("OrigTransparency") then
+					descendant:SetAttribute("OrigTransparency", descendant.Transparency)
+				end
+				descendant.Color = Color3.fromRGB(12, 18, 40)
+				descendant.Thickness = 6 -- Thicker border for GOAL!
+				descendant.Transparency = 0
+			else
+				local origThickness = descendant:GetAttribute("OrigThickness")
+				local origTransparency = descendant:GetAttribute("OrigTransparency")
+				descendant.Color = Color3.fromRGB(12, 18, 40)
+				descendant.Thickness = origThickness or 3
+				descendant.Transparency = origTransparency or 0.12
+			end
 		end
 	end
 
-	UIJuice.PopIn(popup, {
-		StartScale = 0.68,
-		OvershootScale = 1.12,
-		Duration = 0.15,
-		SettleDuration = 0.16,
-	})
+	-- GOAL! gets a dramatic, bouncy pop-in. Other popups keep the snappy default.
+	if text == "GOAL!" then
+		UIJuice.PopIn(popup, {
+			StartScale = 0.50,
+			OvershootScale = 1.30,
+			Duration = 0.20,
+			SettleDuration = 0.22,
+		})
+	else
+		UIJuice.PopIn(popup, {
+			StartScale = 0.68,
+			OvershootScale = 1.12,
+			Duration = 0.15,
+			SettleDuration = 0.16,
+		})
+	end
 
 	task.delay(duration or 0.9, function()
 		if myToken ~= self._centerPopupToken then
@@ -995,18 +1117,127 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 		end
 
 		if popup then
+			-- GOAL! fades out slower and larger for a dramatic exit
+			local popOutDuration = (text == "GOAL!") and 0.35 or 0.12
+			local popOutEndScale = (text == "GOAL!") and 0.90 or 0.80
 			UIJuice.PopOut(popup, {
-				Duration = 0.12,
-				EndScale = 0.80,
+				Duration = popOutDuration,
+				EndScale = popOutEndScale,
 			}, function()
 				if myToken ~= self._centerPopupToken then
 					return
 				end
 
 				popup.Text = ""
+				-- Restore original scale
+				if self._centerPopupOriginalSize then
+					popup.Size = self._centerPopupOriginalSize
+					popup.Position = self._centerPopupOriginalPosition
+					popup.AnchorPoint = Vector2.new(0.5, 0)
+					popup.Rotation = 0
+					popup.Font = self._centerPopupOriginalFont
+					popup.TextScaled = self._centerPopupOriginalTextScaled
+				end
 			end)
 		end
 	end)
+end
+
+function MatchUIController:_spawnUiGoalParticles(popup)
+	local parent = popup.Parent
+	if not parent then return end
+
+	local colors = {
+		Color3.fromRGB(255, 215, 0),    -- Gold
+		Color3.fromRGB(255, 140, 0),    -- Dark Orange
+		Color3.fromRGB(255, 255, 120),   -- Pale Yellow
+		Color3.fromRGB(255, 75, 75),     -- Red
+		Color3.fromRGB(75, 255, 75),     -- Green
+		Color3.fromRGB(75, 220, 255),    -- Cyan
+		Color3.fromRGB(255, 105, 180),   -- Hot Pink
+		Color3.fromRGB(186, 85, 211),    -- Medium Orchid
+	}
+
+	local basePosition = popup.Position
+	local startXScale = basePosition.X.Scale
+	local startYScale = basePosition.Y.Scale
+	local startXOffset = basePosition.X.Offset
+	local startYOffset = basePosition.Y.Offset
+
+	local particleCount = 45 -- More particles for a festive feel!
+	for i = 1, particleCount do
+		local particle = Instance.new("Frame")
+		particle.Name = "ConfettiParticle"
+		particle.AnchorPoint = Vector2.new(0.5, 0.5)
+
+		-- Diverse particle shapes (Circle, Square, Diamond, Ribbon)
+		local shapeType = math.random(1, 4)
+		local startWidth = math.random(12, 24)
+		local startHeight = startWidth
+		
+		if shapeType == 1 then
+			-- Circle
+			local uiCorner = Instance.new("UICorner")
+			uiCorner.CornerRadius = UDim.new(0.5, 0)
+			uiCorner.Parent = particle
+		elseif shapeType == 3 then
+			-- Diamond
+			particle.Rotation = 45
+		elseif shapeType == 4 then
+			-- Ribbon / Strip
+			startHeight = math.random(18, 32)
+			startWidth = math.random(6, 12)
+			particle.Rotation = math.random(0, 360)
+		end
+
+		particle.Size = UDim2.fromOffset(startWidth, startHeight)
+		particle.BackgroundColor3 = colors[math.random(1, #colors)]
+		particle.BorderSizePixel = 0
+		
+		-- Spawn around the text bounds
+		particle.Position = UDim2.new(
+			startXScale,
+			startXOffset + math.random(-150, 150),
+			startYScale,
+			startYOffset + math.random(-30, 30)
+		)
+		
+		particle.ZIndex = popup.ZIndex - 1 -- behind text
+		particle.Parent = parent
+
+		-- Calculate outward velocity vector
+		local angle = (i / particleCount) * math.pi * 2 + (math.random() - 0.5) * 0.3
+		local distance = math.random(100, 380)
+		local targetXOffset = math.cos(angle) * distance
+		-- Y movement has a downward gravity pull
+		local targetYOffset = math.sin(angle) * distance + math.random(60, 140)
+		local targetRotation = particle.Rotation + math.random(-720, 720)
+
+		local duration = math.random(100, 200) / 100 -- 1.0 to 2.0 seconds
+
+		-- Play size, position, rotation, and transparency tweens
+		local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+		local tween = TweenService:Create(
+			particle,
+			tweenInfo,
+			{
+				Size = UDim2.fromOffset(0, 0),
+				BackgroundTransparency = 1,
+				Rotation = targetRotation,
+				Position = UDim2.new(
+					startXScale,
+					particle.Position.X.Offset + targetXOffset,
+					startYScale,
+					particle.Position.Y.Offset + targetYOffset
+				)
+			}
+		)
+
+		tween:Play()
+		task.delay(duration + 0.1, function()
+			particle:Destroy()
+		end)
+	end
 end
 
 
@@ -1133,10 +1364,61 @@ function MatchUIController:_ensureBroadcastHud()
 	ApplyBasicCorner(actionBanner, UDim.new(0, 10))	
 	ApplyBasicStroke(actionBanner, Color3.fromRGB(255, 255, 255), 2, 0.12)
 
+	local goalScorerContainer = Instance.new("Frame")
+	goalScorerContainer.Name = "GoalScorerContainer"
+	goalScorerContainer.AnchorPoint = Vector2.new(0, 0.5)
+	goalScorerContainer.Position = UDim2.new(0, -250, 0.72, 0)
+	goalScorerContainer.Size = UDim2.fromOffset(250, 76)
+	goalScorerContainer.BackgroundTransparency = 1
+	goalScorerContainer.BorderSizePixel = 0
+	goalScorerContainer.Visible = false
+	goalScorerContainer.ZIndex = 720
+	goalScorerContainer.Parent = root
+
+	local goalScorerScale = Instance.new("UIScale")
+	goalScorerScale.Name = "__MatchGoalScorerScale"
+	goalScorerScale.Scale = 1
+	goalScorerScale.Parent = goalScorerContainer
+	self._broadcastGoalScorerScale = goalScorerScale
+
+	local minutePanel = Instance.new("Frame")
+	minutePanel.Name = "MinutePanel"
+	minutePanel.Position = UDim2.fromOffset(0, 0)
+	minutePanel.Size = UDim2.fromOffset(62, 28)
+	minutePanel.BackgroundColor3 = Color3.fromRGB(9, 36, 52)
+	minutePanel.BackgroundTransparency = 0.02
+	minutePanel.BorderSizePixel = 0
+	minutePanel.ZIndex = 721
+	minutePanel.Parent = goalScorerContainer
+	ApplyBasicCorner(minutePanel, UDim.new(0, 3))
+
+	local scorerPanel = Instance.new("Frame")
+	scorerPanel.Name = "ScorerPanel"
+	scorerPanel.Position = UDim2.fromOffset(0, 30)
+	scorerPanel.Size = UDim2.fromOffset(250, 46)
+	scorerPanel.BackgroundColor3 = Color3.fromRGB(246, 248, 255)
+	scorerPanel.BackgroundTransparency = 0
+	scorerPanel.BorderSizePixel = 0
+	scorerPanel.ZIndex = 721
+	scorerPanel.Parent = goalScorerContainer
+	ApplyBasicCorner(scorerPanel, UDim.new(0, 3))
+	ApplyBasicStroke(scorerPanel, Color3.fromRGB(255, 255, 255), 1, 0.2)
+
+	self._broadcastGoalMinuteText = self:_newBroadcastText(minutePanel, "MinuteText", "37'", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), Vector2.new(0, 0), Enum.Font.GothamBlack)
+	self._broadcastGoalMinuteText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	self._broadcastGoalMinuteText.TextStrokeTransparency = 1
+	self._broadcastGoalScorerText = self:_newBroadcastText(scorerPanel, "ScorerText", "Player", UDim2.fromScale(0.88, 0.82), UDim2.fromScale(0.06, 0.08), Vector2.new(0, 0), Enum.Font.GothamBlack)
+	self._broadcastGoalScorerText.TextColor3 = Color3.fromRGB(39, 54, 158)
+	self._broadcastGoalScorerText.TextStrokeTransparency = 1
+	self._broadcastGoalScorerText.TextXAlignment = Enum.TextXAlignment.Left
+
 	self._broadcastHudRoot = root
 	self._broadcastScoreboard = scoreboard
 	self._broadcastClockPanel = clock
 	self._broadcastActionBanner = actionBanner
+	self._broadcastGoalScorerContainer = goalScorerContainer
+	self._broadcastMinutePanel = minutePanel
+	self._broadcastScorerPanel = scorerPanel
 
 	self._broadcastHomeLogo = self:_newBroadcastLogo(scoreboard, "HomeLogo", UDim2.fromScale(0.09, 0.5))
 	self._broadcastAwayLogo = self:_newBroadcastLogo(scoreboard, "AwayLogo", UDim2.fromScale(0.91, 0.5))
@@ -1177,6 +1459,10 @@ function MatchUIController:_updateAllResponsiveScales()
 	if self._broadcastActionBannerScale then
 		self._broadcastActionBannerScale.Scale = scaleFactor
 	end
+
+	if self._broadcastGoalScorerScale then
+		self._broadcastGoalScorerScale.Scale = scaleFactor
+	end
 end
 
 function MatchUIController:_advanceBroadcastClock(now)
@@ -1191,7 +1477,8 @@ function MatchUIController:_advanceBroadcastClock(now)
 
 	if state.IsPaused ~= true then
 		local delta = math.max(0, currentTime - state.LastTickAt)
-		state.TotalSeconds += delta * (60 / BROADCAST_CLOCK_REAL_SECONDS_PER_MATCH_MINUTE)
+		local timeScale = tonumber(state.TimeScale) or 1
+		state.TotalSeconds += delta * timeScale * (60 / BROADCAST_CLOCK_REAL_SECONDS_PER_MATCH_MINUTE)
 	end
 
 	state.LastTickAt = currentTime
@@ -1226,6 +1513,113 @@ function MatchUIController:_startBroadcastClockLoop()
 	end)
 end
 
+function MatchUIController:_getBroadcastGoalMinuteText()
+	local state = self._broadcastClockState
+	if not state then
+		return FormatGoalMinute(BROADCAST_CLOCK_START_MINUTE * 60)
+	end
+
+	local totalSeconds = self:_advanceBroadcastClock(os.clock()) or state.TotalSeconds or 0
+	return FormatGoalMinute(totalSeconds)
+end
+
+function MatchUIController:_hideGoalScorerPanel(animate)
+	self._goalScorerPanelToken = (self._goalScorerPanelToken or 0) + 1
+	local panel = self._broadcastGoalScorerContainer
+	if not panel then
+		return
+	end
+
+	local hiddenPosition = UDim2.new(0, -260, 0.72, 0)
+	if animate == false or not panel.Visible then
+		panel.Visible = false
+		panel.Position = hiddenPosition
+		return
+	end
+
+	local token = self._goalScorerPanelToken
+	TweenService:Create(
+		panel,
+		TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ Position = hiddenPosition }
+	):Play()
+	task.delay(0.2, function()
+		if token ~= self._goalScorerPanelToken then
+			return
+		end
+		panel.Visible = false
+	end)
+end
+
+function MatchUIController:_showGoalScorerPanel(payload)
+	if not BROADCAST_HUD_ENABLED then
+		return
+	end
+
+	self:_ensureBroadcastHud()
+	local panel = self._broadcastGoalScorerContainer
+	if not panel then
+		return
+	end
+
+	payload = typeof(payload) == "table" and payload or {}
+	local scorerName = tostring(payload.ScorerDisplayName or payload.ActorDisplayName or "Player")
+	if scorerName == "" then
+		scorerName = "Player"
+	end
+
+	self._goalScorerPanelToken = (self._goalScorerPanelToken or 0) + 1
+	local token = self._goalScorerPanelToken
+	local hiddenPosition = UDim2.new(0, -260, 0.72, 0)
+	local shownPosition = UDim2.new(0, 18, 0.72, 0)
+
+	if self._broadcastGoalMinuteText then
+		self._broadcastGoalMinuteText.Text = self:_getBroadcastGoalMinuteText()
+	end
+	if self._broadcastGoalScorerText then
+		self._broadcastGoalScorerText.Text = scorerName
+	end
+
+	local scorerPanel = self._broadcastScorerPanel or panel:FindFirstChild("ScorerPanel")
+
+	panel.Visible = true
+	panel.Position = hiddenPosition
+	
+	if scorerPanel then
+		scorerPanel.Visible = false
+		scorerPanel.Position = UDim2.new(0, -180, 0, 30)
+	end
+
+	local containerTween = TweenService:Create(
+		panel,
+		TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Position = shownPosition }
+	)
+	containerTween:Play()
+
+	if scorerPanel then
+		task.delay(0.40, function()
+			if token ~= self._goalScorerPanelToken then
+				return
+			end
+			scorerPanel.Visible = true
+			local scorerTween = TweenService:Create(
+				scorerPanel,
+				TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+				{ Position = UDim2.new(0, 0, 0, 30) }
+			)
+			scorerTween:Play()
+		end)
+	end
+
+	task.delay(GOAL_SCORER_PANEL_HOLD_SECONDS, function()
+		if token ~= self._goalScorerPanelToken then
+			return
+		end
+		self:_hideGoalScorerPanel(true)
+	end)
+end
+
 function MatchUIController:PauseBroadcastClock()
 	local state = self._broadcastClockState
 	if not state or state.IsPaused == true then
@@ -1257,6 +1651,18 @@ function MatchUIController:ResumeBroadcastClock()
 		return
 	end
 
+	state.LastTickAt = os.clock()
+	state.IsPaused = false
+end
+
+function MatchUIController:SetBroadcastClockTimeScale(scale)
+	local state = self._broadcastClockState
+	if not state then
+		return
+	end
+
+	self:_advanceBroadcastClock(os.clock())
+	state.TimeScale = math.max(tonumber(scale) or 1, 0)
 	state.LastTickAt = os.clock()
 	state.IsPaused = false
 end
@@ -1301,10 +1707,10 @@ function MatchUIController:ShowBroadcastHud(payload)
 
 	local introData = GetIntroDataFromPayload(payload)
 	local areaId = tostring(introData.AreaId or (payload and payload.AreaId) or "Area01")
-	local homeName = tostring(introData.HomeTeamName or PLAYER_TEAM_NAME)
+	local homeName = ResolvePlayerTeamName(introData.HomeTeamName)
 	local awayName = tostring(introData.AwayTeamName or "Opponent FC")
-	local homeCode = ResolveTeamCode(areaId, homeName, "RIV")
-	local awayCode = ResolveTeamCode(areaId, awayName, "OPP")
+	local homeCode = ResolveTeamCode(areaId, homeName, "RIV", true)
+	local awayCode = ResolveTeamCode(areaId, awayName, "OPP", false)
 	local homeLogo = ResolveTeamLogo(areaId, homeName, introData.HomeLogo, true)
 	local awayLogo = ResolveTeamLogo(areaId, awayName, introData.AwayLogo, false)
 	local homeScore = tonumber(introData.HomeScore) or 0
@@ -1315,6 +1721,7 @@ function MatchUIController:ShowBroadcastHud(payload)
 	self._broadcastClockLocked = false
 	self._broadcastHudRoot.Visible = true
 	self._broadcastActionBanner.Visible = false
+	self:_hideGoalScorerPanel(false)
 	self._broadcastHomeCode.Text = homeCode
 	self._broadcastAwayCode.Text = awayCode
 	SetImageIfFound(self._broadcastHomeLogo, homeLogo)
@@ -1325,6 +1732,7 @@ function MatchUIController:ShowBroadcastHud(payload)
 		TotalSeconds = startMinute * 60,
 		LastTickAt = os.clock(),
 		IsPaused = false,
+		TimeScale = 1,
 	}
 	self:_renderBroadcastClock(startMinute * 60)
 	self:_startBroadcastClockLoop()
@@ -1342,6 +1750,7 @@ function MatchUIController:HideBroadcastHud()
 	if self._broadcastActionBanner then
 		self._broadcastActionBanner.Visible = false
 	end
+	self:_hideGoalScorerPanel(false)
 end
 
 function MatchUIController:ShowActionBanner(stepPayload)
@@ -1521,9 +1930,17 @@ function MatchUIController:IncrementGoals(amount)
 	self:SetGoalsValue((self._currentGoalsValue or 0) + (tonumber(amount) or 0))
 end
 
-function MatchUIController:IncrementMatchScore(amount)
+function MatchUIController:IncrementMatchScore(amount, payload)
 	self:IncrementGoals(amount)
 	self:IncrementBroadcastHomeScore(amount)
+	self:_showGoalScorerPanel(payload)
+	self:StopBroadcastClock()
+
+	-- Show "GOAL!" popup at the exact moment the ball hits the net for all goals
+	-- Hold longer (4.0s) so the player can savor the climax
+	self:_showCenterPopup("GOAL!", Color3.fromRGB(255, 206, 10), 4.0)
+	self._goalPopupShowedAt = os.clock()
+	self._goalPopupDuration = 4.0
 end
 
 function MatchUIController:ShowComparePill()
@@ -1760,7 +2177,7 @@ end
 
 function MatchUIController:ShowQte(stepPayload, confirmCallback)
 	self:_ensureGui()
-	self:PauseBroadcastClock()
+	self:SetBroadcastClockTimeScale(QTE_BROADCAST_CLOCK_TIME_SCALE)
 	self:SetQteConfirmCallback(confirmCallback)
 
 	local qteLayer = self:_getQteLayer()
@@ -1876,7 +2293,6 @@ function MatchUIController:ShowQteResult(resultPayload)
 		-- Shoot has its own cinematic and final MatchResult UI. Suppress the legacy
 		-- center QTE result popup here so it does not visually stall the shot.
 		self:_showCenterPopup(nil, nil, 0)
-		self:StopBroadcastClock()
 
 		-- Score increment is deferred to MatchShootDirector which will call
 		-- IncrementMatchScore exactly when the ball reaches the net.
@@ -2020,8 +2436,11 @@ function MatchUIController:_showArtistMatchFinished(success, payload)
 	UIJuice.Cancel(refs.Popup)
 
 	SetImageFromSource(refs.PlayerLogo, introRefs and introRefs.PlayerLogo)
+	if not (introRefs and introRefs.PlayerLogo) then
+		SetPlayerImageIfMissing(refs.PlayerLogo)
+	end
 	SetImageFromSource(refs.EnemyLogo, introRefs and introRefs.EnemyLogo)
-	SetTextIfFound(refs.PlayerNameText, introRefs and introRefs.PlayerNameText and introRefs.PlayerNameText.Text or "Rivrs FC")
+	SetTextIfFound(refs.PlayerNameText, introRefs and introRefs.PlayerNameText and introRefs.PlayerNameText.Text or PlayerTeamIdentity.GetName(PLAYER_TEAM_NAME))
 	SetTextIfFound(refs.EnemyNameText, introRefs and introRefs.EnemyNameText and introRefs.EnemyNameText.Text or "Opponent FC")
 	SetTextIfFound(refs.PlayerScoreText, tostring(finalHomeScore))
 	SetTextIfFound(refs.EnemyScoreText, tostring(finalAwayScore))
@@ -2076,6 +2495,37 @@ function MatchUIController:ShowMatchResult(success, payload)
 	self:_stopExcellentCameraEffect()
 	if not self:_isResultPayloadCurrent(payload) then
 		return
+	end
+
+	-- Multi-leg: check if this is an intermediate leg win (leg continuation)
+	local MatchController = Knit.GetController("MatchController")
+	local currentPayload = MatchController and MatchController._currentPayload
+	local tournament = currentPayload and currentPayload.Tournament
+	local isLegContinuation = false
+	if success and tournament and tournament.AggregatePlayer ~= nil then
+		local newAggregatePlayer = (tournament.AggregatePlayer or 0) + 1
+		local gap = newAggregatePlayer - (tournament.AggregateOpponent or 0)
+		if gap < 1 then
+			isLegContinuation = true
+		end
+	end
+
+	if isLegContinuation then
+		-- Already shown at net impact via IncrementMatchScore. Just return.
+		return
+	end
+
+	-- If this is a winning goal (success == true), wait for the "GOAL!" popup to finish displaying
+	if success and self._goalPopupShowedAt then
+		local elapsed = os.clock() - self._goalPopupShowedAt
+		local remaining = (self._goalPopupDuration or 2.5) - elapsed
+		if remaining > 0 then
+			task.wait(remaining)
+			-- Double check if the payload is still current after yielding
+			if not self:_isResultPayloadCurrent(payload) then
+				return
+			end
+		end
 	end
 
 	self:HideComparePill()
@@ -2203,6 +2653,7 @@ function MatchUIController:HideQte(options)
 	options = typeof(options) == "table" and options or {}
 
 	if options.ResumeBroadcastClock ~= false and self._broadcastHudActive then
+		self:SetBroadcastClockTimeScale(1)
 		self:ResumeBroadcastClock()
 	end
 
@@ -2243,6 +2694,7 @@ function MatchUIController:KnitInit()
 	self._broadcastHomeScoreValue = 0
 	self._broadcastAwayScoreValue = 0
 	self._actionBannerToken = 0
+	self._goalScorerPanelToken = 0
 	self._excellentEffectToken = 0
 	self._excellentEffectTweens = {}
 	self._excellentEffectRecords = nil

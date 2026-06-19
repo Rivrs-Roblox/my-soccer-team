@@ -17,6 +17,7 @@ local MonetizationService
 
 -- Controllers
 local DataCacheController = nil
+local UIController = nil
 
 -- MonetizationController
 local MonetizationController = Knit.CreateController({
@@ -26,9 +27,41 @@ local MonetizationController = Knit.CreateController({
 
 	IDs = {},
 	Prices = {},
+	PurchasePromptActive = false,
+	_purchasePromptToken = 0,
 })
 
 --|| Functions ||--
+function MonetizationController:MarkPurchasePromptStarted()
+	self._purchasePromptToken += 1
+	local token = self._purchasePromptToken
+	self.PurchasePromptActive = true
+	if self.PromptStateChanged then
+		self.PromptStateChanged:Fire(true)
+	end
+
+	task.delay(120, function()
+		if self._purchasePromptToken == token then
+			self.PurchasePromptActive = false
+			if self.PromptStateChanged then
+				self.PromptStateChanged:Fire(false)
+			end
+		end
+	end)
+end
+
+function MonetizationController:MarkPurchasePromptFinished()
+	self._purchasePromptToken += 1
+	self.PurchasePromptActive = false
+	if self.PromptStateChanged then
+		self.PromptStateChanged:Fire(false)
+	end
+end
+
+function MonetizationController:IsPurchasePromptActive(): boolean
+	return self.PurchasePromptActive == true
+end
+
 function MonetizationController:_SetupMonetizationArea(instance: BasePart)
 	local zone = Zone.new(instance)
 	zone:setDetection("Centre")
@@ -39,6 +72,11 @@ function MonetizationController:_SetupMonetizationArea(instance: BasePart)
 	-- Handle player entering the zone
 	zone.playerEntered:Connect(function(player)
 		if player == Players.LocalPlayer then
+			if UIController and UIController.IsPanelOpenBlocked and UIController:IsPanelOpenBlocked() then
+				return
+			end
+
+			self:MarkPurchasePromptStarted()
 			MonetizationService:PromptPurchase(product, type)
 		end
 	end)
@@ -97,9 +135,19 @@ end
 
 --|| Knit Lifecycle ||--
 function MonetizationController:KnitInit()
+	self.PromptStateChanged = Instance.new("BindableEvent")
 	MonetizationService = Knit.GetService("MonetizationService")
 
+	local originalPromptPurchase = MonetizationService.PromptPurchase
+	if originalPromptPurchase then
+		MonetizationService.PromptPurchase = function(serviceSelf, ...)
+			self:MarkPurchasePromptStarted()
+			return originalPromptPurchase(serviceSelf, ...)
+		end
+	end
+
 	DataCacheController = Knit.GetController("DataCacheController")
+	UIController = Knit.GetController("UIController")
 
 	self.Monetization = DataCacheController:GetFile("Monetization")
 
@@ -119,6 +167,24 @@ function MonetizationController:KnitInit()
 end
 
 function MonetizationController:KnitStart()
+	pcall(function()
+		MarketplaceService.PromptProductPurchaseFinished:Connect(function()
+			self:MarkPurchasePromptFinished()
+		end)
+	end)
+
+	pcall(function()
+		MarketplaceService.PromptGamePassPurchaseFinished:Connect(function()
+			self:MarkPurchasePromptFinished()
+		end)
+	end)
+
+	pcall(function()
+		MarketplaceService.PromptPurchaseFinished:Connect(function()
+			self:MarkPurchasePromptFinished()
+		end)
+	end)
+
 	local existingAreas = CollectionService:GetTagged("MonetizationArea")
 	for _, instance in pairs(existingAreas) do
 		self:_SetupMonetizationArea(instance)

@@ -70,6 +70,70 @@ local function FindChampionTemplate(): Instance?
 	return nil
 end
 
+local function SetVisualHidden(root: Instance?, hidden: boolean)
+	if not root then
+		return
+	end
+
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.LocalTransparencyModifier = hidden and 1 or 0
+			if hidden then
+				descendant.CanCollide = false
+				descendant.CanTouch = false
+				descendant.CanQuery = false
+			end
+		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+			descendant.Transparency = hidden and 1 or 0
+		elseif descendant:IsA("BillboardGui")
+			or descendant:IsA("SurfaceGui")
+			or descendant:IsA("ParticleEmitter")
+			or descendant:IsA("Beam")
+			or descendant:IsA("Trail")
+			or descendant:IsA("PointLight")
+			or descendant:IsA("SpotLight")
+			or descendant:IsA("SurfaceLight")
+			or descendant:IsA("Highlight")
+		then
+			if hidden then
+				local alreadyHidden = descendant:GetAttribute("MatchOwnerEffectHidden") == true
+				if not alreadyHidden then
+					local ok, enabled = pcall(function()
+						return (descendant :: any).Enabled
+					end)
+
+					local isEnabled = ok and enabled == true or false
+					pcall(function()
+						descendant:SetAttribute("MatchOwnerEffectCachedEnabled", isEnabled)
+						descendant:SetAttribute("MatchOwnerEffectHidden", true)
+					end)
+				end
+
+				pcall(function()
+					(descendant :: any).Enabled = false
+				end)
+			else
+				local wasHidden = descendant:GetAttribute("MatchOwnerEffectHidden") == true
+				if wasHidden then
+					local cachedEnabled = descendant:GetAttribute("MatchOwnerEffectCachedEnabled") == true
+					pcall(function()
+						(descendant :: any).Enabled = cachedEnabled
+					end)
+				end
+
+				pcall(function()
+					descendant:SetAttribute("MatchOwnerEffectCachedEnabled", nil)
+					descendant:SetAttribute("MatchOwnerEffectHidden", nil)
+				end)
+			end
+		end
+	end
+
+	if root:IsA("BasePart") then
+		root.LocalTransparencyModifier = hidden and 1 or 0
+	end
+end
+
 local function EnsureWorkspaceChampionRoot(): Instance?
 	local battleField = FindChildPath(Workspace, { "Map", "BattleZone", "BattleField" })
 	local parent = battleField or Workspace
@@ -91,17 +155,7 @@ local function EnsureWorkspaceChampionRoot(): Instance?
 	clone.Name = "Champion"
 	clone.Parent = parent
 	clone:SetAttribute("RuntimeChampionStage", true)
-	for _, descendant in ipairs(clone:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.LocalTransparencyModifier = 1
-		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
-			descendant.Transparency = 1
-		elseif descendant:IsA("BillboardGui") or descendant:IsA("SurfaceGui") then
-			descendant.Enabled = false
-		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
-			descendant.Enabled = false
-		end
-	end
+	SetVisualHidden(clone, true)
 
 	return clone
 end
@@ -158,34 +212,6 @@ local function GetPivot(instance: Instance?): CFrame?
 	return nil
 end
 
-local function SetVisualHidden(root: Instance?, hidden: boolean)
-	if not root then
-		return
-	end
-
-	for _, descendant in ipairs(root:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.LocalTransparencyModifier = hidden and 1 or 0
-			if hidden then
-				descendant.CanCollide = false
-				descendant.CanTouch = false
-				descendant.CanQuery = false
-			end
-		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
-			descendant.Transparency = hidden and 1 or 0
-		elseif descendant:IsA("BillboardGui") or descendant:IsA("SurfaceGui") then
-			descendant.Enabled = not hidden
-		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Beam") or descendant:IsA("Trail") then
-			descendant.Enabled = not hidden
-		elseif descendant:IsA("PointLight") or descendant:IsA("SpotLight") or descendant:IsA("SurfaceLight") then
-			descendant.Enabled = not hidden
-		end
-	end
-
-	if root:IsA("BasePart") then
-		root.LocalTransparencyModifier = hidden and 1 or 0
-	end
-end
 
 local function IsTrophyVisual(instance: Instance): boolean
 	local lowerName = string.lower(instance.Name)
@@ -241,7 +267,7 @@ local function HideRealTrophy(model: Model?)
 		end
 	end
 end
-
+--
 local function SetTrophyVisible(root: Instance?, visible: boolean)
 	if not root then
 		return

@@ -151,7 +151,7 @@ function DailyRewards(_, hooks)
 	end
 
 	local skipOnePrice = getRobuxPrice("Daily Rewards - Skip 1", "79")
-	local skipAllPrice = getRobuxPrice("Daily Rewards - Skip All", "799")
+	local skipAllPrice = getRobuxPrice("Daily Rewards - Buy All", "799")
 	local robuxIcon = Template.Messages.Robux_Icon or ""
 
 	return Roact.createElement("Frame", {

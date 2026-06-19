@@ -25,7 +25,7 @@ game:GetService("RunService")
 			elseif Data.Emitter.Enabled and tick() - Data.lastEmission >= Data.Emitter.Rate ^ -1 then
 				Data.lastEmission = tick()
 
-				addParticle(Data.Emitter, Data.Emitter.Parent, Data.Scale)
+				addParticle(Data.Emitter, Data.UI_Parent or Data.Emitter.Parent, Data.Scale)
 			end
 		end
 
@@ -245,8 +245,8 @@ function getKeypointsFromTime(CustomNumberSeq, t)
 	end
 end
 
-function module:AddEmitter(ParticleEmitter, Scale)
-	table.insert(Emitters, { Emitter = ParticleEmitter, lastEmission = tick(), Scale = Scale or 1 })
+function module:AddEmitter(ParticleEmitter, Scale, UI_Parent)
+	table.insert(Emitters, { Emitter = ParticleEmitter, lastEmission = tick(), Scale = Scale or 1, UI_Parent = UI_Parent })
 end
 
 function module:RemoveEmitter(ParticleEmitter)

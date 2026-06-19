@@ -29,25 +29,24 @@ local TrainingService = Knit.CreateService({
 		TrainingFeedback = Knit.CreateSignal(),
 		TrainingSessionChanged = Knit.CreateSignal(),
 		TrainingVisualStateChanged = Knit.CreateSignal(),
+		TrainingRestingStateChanged = Knit.CreateSignal(),
+		TrainingLevelChanged = Knit.CreateSignal(),
+		TrainingTempStaminaChanged = Knit.CreateSignal(),
 	},
 })
 
 local activeTrainings = {}
 local occupiedZones = {}
+local playerStaminaTracking = {}
 
 local registeredZonesByStatType = {
 	Shoot = {},
 	Pass = {},
 	Dribble = {},
+	Stamina = {},
 }
 
 local TICK_INTERVAL = 1
-
-local ANIMATIONS = {
-	Shoot = nil,
-	Pass = "rbxassetid://507770239",
-	Dribble = nil,
-}
 
 local TRAINING_ZONE_CONFIGS = {
 	Shoot = {
@@ -61,6 +60,10 @@ local TRAINING_ZONE_CONFIGS = {
 	Dribble = {
 		FolderName = "DribbleZone",
 		Pattern = "^DribbleZone%d+$",
+	},
+	Stamina = {
+		FolderName = "StaminaZone",
+		Pattern = "^StaminaZone%d+$",
 	},
 }
 
@@ -95,7 +98,8 @@ local function SendTrainingVisualStateChanged(
 	statType: string?,
 	zoneKey: string?,
 	serverStartTime: number?,
-	isAuto: boolean?
+	isAuto: boolean?,
+	level: number?
 )
 	service.Client.TrainingVisualStateChanged:FireAll(
 		player,
@@ -103,8 +107,17 @@ local function SendTrainingVisualStateChanged(
 		statType,
 		zoneKey,
 		serverStartTime,
-		isAuto or false
+		isAuto or false,
+		level
 	)
+end
+
+local function SendTrainingRestingStateChanged(service, player: Player, isResting: boolean)
+	service.Client.TrainingRestingStateChanged:Fire(player, isResting)
+end
+
+local function SendTrainingLevelChanged(service, player: Player, level: number)
+	service.Client.TrainingLevelChanged:FireAll(player, level)
 end
 
 local function GetZoneKey(zone: Instance): string
@@ -126,31 +139,6 @@ local function GetCurrentAreaId(player: Player): string
 	end
 
 	return "Area01"
-end
-
-local function GetAnimator(humanoid: Humanoid): Animator
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if animator then
-		return animator
-	end
-
-	local newAnimator = Instance.new("Animator")
-	newAnimator.Parent = humanoid
-	return newAnimator
-end
-
-local function StopTrack(track: AnimationTrack?)
-	if not track then
-		return
-	end
-
-	pcall(function()
-		track:Stop(0.1)
-	end)
-
-	pcall(function()
-		track:Destroy()
-	end)
 end
 
 function TrainingService:IsPlayerTraining(player: Player): boolean
@@ -209,6 +197,39 @@ function TrainingService:StartTraining(
 	statType: string,
 	isAuto: boolean?
 )
+	local MatchService = nil
+	pcall(function()
+		MatchService = Knit.GetService("MatchService")
+	end)
+
+	if MatchService then
+		if MatchService.IsPlayerInMatch and MatchService:IsPlayerInMatch(player) then
+			SendTrainingFeedback(self, player, "InMatch", "Cannot start training while in a match.")
+			return false
+		end
+		if MatchService.IsPlayerTransitioning and MatchService:IsPlayerTransitioning(player) then
+			SendTrainingFeedback(self, player, "Transitioning", "Cannot start training during match transition.")
+			return false
+		end
+	end
+
+	local TournamentService = nil
+	pcall(function()
+		TournamentService = Knit.GetService("TournamentService")
+	end)
+
+	if TournamentService then
+		if TournamentService.IsPendingStart and TournamentService:IsPendingStart(player) then
+			SendTrainingFeedback(
+				self,
+				player,
+				"PendingMatch",
+				"Cannot start training while tournament preview is active."
+			)
+			return false
+		end
+	end
+
 	local normalizedStatType = TrainingTypes.Normalize(statType)
 	if not normalizedStatType then
 		SendTrainingFeedback(self, player, "InvalidStatType", "Invalid training type.")
@@ -256,18 +277,30 @@ function TrainingService:StartTraining(
 
 	rootPart.Anchored = true
 
-	local animTrack = nil
-	local animationId = ANIMATIONS[normalizedStatType]
+	local playerStats = PlayerStatsService:GetStats(player)
+	local maxStamina = playerStats.Stamina or 100
 
-	if animationId then
-		local animation = Instance.new("Animation")
-		animation.AnimationId = animationId
+	-- Calculate off-training regeneration
+	local tracker = playerStaminaTracking[player]
+	if not tracker then
+		tracker = { Value = maxStamina, Max = maxStamina, LastUpdate = os.time() }
+		playerStaminaTracking[player] = tracker
+	else
+		-- Scale proportionally if max stamina changed
+		if tracker.Max and tracker.Max > 0 and tracker.Max ~= maxStamina then
+			local ratio = tracker.Value / tracker.Max
+			tracker.Value = ratio * maxStamina
+			tracker.Max = maxStamina
+		elseif not tracker.Max then
+			tracker.Max = maxStamina
+		end
 
-		animTrack = GetAnimator(humanoid):LoadAnimation(animation)
-		animTrack.Looped = true
-		animTrack:Play()
-
-		animation:Destroy()
+		local timeElapsed = os.time() - tracker.LastUpdate
+		if timeElapsed > 0 then
+			local regenAmount = timeElapsed * (maxStamina * 0.15)
+			tracker.Value = math.clamp(tracker.Value + regenAmount, 0, maxStamina)
+			tracker.LastUpdate = os.time()
+		end
 	end
 
 	local session = {
@@ -276,9 +309,13 @@ function TrainingService:StartTraining(
 		Zone = zone,
 		ZoneKey = zoneKey,
 		RootPart = rootPart,
-		AnimTrack = animTrack,
+
 		StatType = normalizedStatType,
 		AreaId = areaId,
+		Level = 1,
+		TempStamina = tracker.Value,
+		MaxStamina = maxStamina,
+		IsResting = false,
 		Character = character,
 		IsAuto = isAuto or false,
 	}
@@ -294,15 +331,57 @@ function TrainingService:StartTraining(
 		normalizedStatType,
 		zoneKey,
 		session.ServerStartTime,
-		session.IsAuto
+		session.IsAuto,
+		session.Level
 	)
+	self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, maxStamina)
 
 	session.Thread = task.spawn(function()
 		while activeTrainings[player] == session do
 			task.wait(TICK_INTERVAL)
 
 			local ok, err = pcall(function()
-				PlayerStatsService:AddStat(player, normalizedStatType, areaId)
+				local currentStats = PlayerStatsService:GetStats(player)
+				local currentMaxStamina = currentStats.Stamina or 100
+				
+				-- Update MaxStamina, but only scale TempStamina if resting
+				if session.IsResting then
+					if session.MaxStamina and session.MaxStamina > 0 and session.MaxStamina ~= currentMaxStamina then
+						local ratio = session.TempStamina / session.MaxStamina
+						session.TempStamina = ratio * currentMaxStamina
+					end
+				end
+				session.MaxStamina = currentMaxStamina
+
+				if session.IsResting then
+					-- Regenerate 15% of max stamina
+					local regenAmount = currentMaxStamina * 0.15
+					session.TempStamina += regenAmount
+
+					if session.TempStamina >= currentMaxStamina then
+						session.TempStamina = currentMaxStamina
+						session.IsResting = false
+						SendTrainingRestingStateChanged(self, player, false)
+					end
+					self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, currentMaxStamina)
+				else
+					local cost = PlayerStatsService:GetStaminaCostPerTick(player, areaId, normalizedStatType, session.Level) or 0
+					if session.TempStamina >= cost then
+						session.TempStamina -= cost
+						PlayerStatsService:AddStat(player, normalizedStatType, areaId, session.Level)
+						self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, currentMaxStamina)
+					else
+						session.IsResting = true
+						SendTrainingRestingStateChanged(self, player, true)
+					end
+				end
+				
+				-- Update tracking
+				if playerStaminaTracking[player] then
+					playerStaminaTracking[player].Value = session.TempStamina
+					playerStaminaTracking[player].Max = session.MaxStamina
+					playerStaminaTracking[player].LastUpdate = os.time()
+				end
 			end)
 
 			if not ok then
@@ -324,10 +403,6 @@ function TrainingService:StopTraining(player: Player, reason: string?)
 
 	if data.Thread then
 		task.cancel(data.Thread)
-	end
-
-	if data.AnimTrack then
-		StopTrack(data.AnimTrack)
 	end
 
 	if data.RootPart and data.RootPart.Parent then
@@ -376,12 +451,47 @@ function TrainingService:RequestAutoTraining(player: Player, statType: string)
 		return false
 	end
 
-	return self:StartTraining(player, zoneData.Prompt, zoneData.Zone, normalizedStatType, true)
+	local success = self:StartTraining(player, zoneData.Prompt, zoneData.Zone, normalizedStatType, true)
+	if success then
+		for level = 3, 1, -1 do
+			local levelSuccess = self:SetTrainingLevel(player, level)
+			if levelSuccess then
+				break
+			end
+		end
+	end
+
+	return success
 end
 
 function TrainingService.Client:RequestStopTraining(player: Player)
 	local service = Knit.GetService("TrainingService")
 	service:StopTraining(player, "ClientRequest")
+end
+
+function TrainingService:SetTrainingLevel(player: Player, level: number)
+	local session = activeTrainings[player]
+	if session then
+		if type(level) == "number" and level >= 1 and level <= 3 then
+			local cost = PlayerStatsService:GetStaminaCostPerTick(player, session.AreaId, session.StatType, level) or 0
+			local currentStats = PlayerStatsService:GetStats(player)
+			local maxStamina = currentStats.Stamina or 100
+
+			if maxStamina < cost then
+				return false, "Not enough stamina for this level!"
+			end
+
+			session.Level = level
+			SendTrainingLevelChanged(self, player, level)
+			return true, nil
+		end
+	end
+	return false, "Invalid state or level"
+end
+
+function TrainingService.Client:RequestSetTrainingLevel(player: Player, level: number)
+	local service = Knit.GetService("TrainingService")
+	return service:SetTrainingLevel(player, level)
 end
 
 function TrainingService.Client:RequestAutoTraining(player: Player, statType: string)
@@ -398,7 +508,7 @@ function TrainingService:FindFallbackTrainingZone(preferredStatType: string)
 		end
 	end
 
-	local allTypes = { "Shoot", "Pass", "Dribble" }
+	local allTypes = { "Shoot", "Pass", "Dribble", "Stamina" }
 	for _, statType in ipairs(allTypes) do
 		if statType ~= normalizedStatType then
 			local zoneData = self:FindAvailableZone(statType)
@@ -527,6 +637,10 @@ function TrainingService:KnitInit()
 	PlayerStatsService = Knit.GetService("PlayerStatsService")
 	DataService = Knit.GetService("DataService")
 	TeleportService = Knit.GetService("TeleportService")
+	
+	game:GetService("Players").PlayerRemoving:Connect(function(player)
+		playerStaminaTracking[player] = nil
+	end)
 end
 
 function TrainingService:KnitStart()

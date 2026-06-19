@@ -178,44 +178,15 @@ return function(params, hooks)
 		)
 	end
 
-	return Roact.createElement("ImageButton", {
+	return Roact.createElement("Frame", {
 		LayoutOrder = params.id,
 		BackgroundColor3 = Color3.fromHex("fcfaff"),
 		BackgroundTransparency = 0,
 		BorderSizePixel = 0,
-		ImageTransparency = 1,
-		Interactable = not params.claimed,
 		Size = size,
 		ZIndex = 2,
 
 		[Roact.Ref] = buttonRef,
-
-		[Roact.Event.MouseEnter] = animateHover,
-		[Roact.Event.MouseLeave] = animateNormal,
-		[Roact.Event.MouseButton1Down] = animateClick,
-		[Roact.Event.MouseButton1Up] = animateHover,
-
-		[Roact.Event.MouseButton1Click] = function()
-			if params.claimed then
-				return
-			end
-
-			if params.id == nextRewardId and cooldownRemaining <= 0 then
-				DailyRewardsController:ClaimReward(params.id)
-			elseif params.id ~= nextRewardId then
-				NotificationController:Notify({
-					text = "You need to claim the previous rewards first!",
-					type = "ERROR",
-				})
-			else
-				NotificationController:Notify({
-					text = "Next daily reward in " .. FormatDuration(cooldownRemaining),
-					type = "ERROR",
-				})
-			end
-
-			animateHover()
-		end,
 	}, {
 		UICorner = Roact.createElement("UICorner", {
 			CornerRadius = UDim.new(0, 6),
@@ -241,6 +212,45 @@ return function(params, hooks)
 				}),
 				Rotation = 90,
 			}) or nil,
+		}),
+
+		TouchTarget = Roact.createElement("ImageButton", {
+			Active = true,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			ImageTransparency = 1,
+			Interactable = not params.claimed,
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 20,
+
+
+			[Roact.Event.MouseEnter] = animateHover,
+			[Roact.Event.MouseLeave] = animateNormal,
+			[Roact.Event.MouseButton1Down] = animateClick,
+			[Roact.Event.MouseButton1Up] = animateHover,
+
+			[Roact.Event.MouseButton1Click] = function()
+				if params.claimed then
+					return
+				end
+
+				if params.id == nextRewardId and cooldownRemaining <= 0 then
+					DailyRewardsController:ClaimReward(params.id)
+				elseif params.id ~= nextRewardId then
+					NotificationController:Notify({
+						text = "You need to claim the previous rewards first!",
+						type = "ERROR",
+					})
+				else
+					NotificationController:Notify({
+						text = "Next daily reward in " .. FormatDuration(cooldownRemaining),
+						type = "ERROR",
+					})
+				end
+
+				animateHover()
+			end,
 		}),
 
 		DayText = Roact.createElement("TextLabel", {

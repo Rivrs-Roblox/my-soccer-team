@@ -19,6 +19,7 @@ local SoccerCharactersService = Knit.CreateService({
 	Name = "SoccerCharactersService",
 	Client = {
 		SoccerCharactersUpdated = Knit.CreateSignal(),
+		EquippedCharactersUpdated = Knit.CreateSignal(),
 		MergeCompleted = Knit.CreateSignal(),
 	},
 })
@@ -32,7 +33,38 @@ function SoccerCharactersService.Client:MergeCharacters(player: Player, ids: { a
 	return self.Server:MergeCharacters(player, ids)
 end
 
+function SoccerCharactersService.Client:GetEquippedCharacters(player: Player, requestedPlayer: Player?)
+	requestedPlayer = requestedPlayer or player
+	return self.Server:GetEquippedCharacters(requestedPlayer)
+end
+
 --|| Functions ||--
+function SoccerCharactersService:GetEquippedCharacters(player: Player)
+	local data = DataService:GetData(player)
+	if not data or not data.Inventory then
+		return {
+			Equipped = {},
+			Accessories = {},
+		}
+	end
+
+	local equipped = {}
+	local inventory = data.Inventory.SoccerCharacters or {}
+	local equippedIds = data.Inventory.EquippedSoccerCharacters or {}
+
+	for _, id in pairs(equippedIds) do
+		local character = inventory[tostring(id)] or inventory[tonumber(id)] or inventory[id]
+		if character then
+			table.insert(equipped, character)
+		end
+	end
+
+	return {
+		Equipped = equipped,
+		Accessories = data.Inventory.Accessories or {},
+	}
+end
+
 function SoccerCharactersService:MergeCharacters(player: Player, ids: { any })
 	if not ids or #ids < 2 then
 		return { text = "Select at least 2 characters to merge.", type = "ERROR" }
@@ -167,7 +199,7 @@ function SoccerCharactersService:AddCharacter(player: Player, name: string, char
 	local legendaryCount = 0
 	for _, char in pairs(data.Inventory.SoccerCharacters) do
 		local charTemplate = self.Template.SoccerCharacters[char.Name]
-		if charTemplate and string.find(charTemplate.Rarity, "Legendary") then
+		if charTemplate and charTemplate.Rarity and string.find(charTemplate.Rarity, "Legendary") then
 			legendaryCount += 1
 		end
 	end
@@ -246,6 +278,7 @@ function SoccerCharactersService:KnitStart()
 
 	AccessoryService.SoccerCharactersChanged:Connect(function(player, soccerCharacters)
 		self.Client.SoccerCharactersUpdated:Fire(player, soccerCharacters)
+		self.Client.EquippedCharactersUpdated:FireAll(player, self:GetEquippedCharacters(player))
 	end)
 end
 

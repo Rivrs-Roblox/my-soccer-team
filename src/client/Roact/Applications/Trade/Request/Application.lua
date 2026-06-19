@@ -20,6 +20,7 @@ local Blue_Background = require(Components.Main.Blue_Background)
 
 -- Controllers
 local TradeController = Knit.GetController("TradeController")
+local UIController = Knit.GetController("UIController")
 
 local TITLE_ICON = "rbxassetid://128766941288775"
 
@@ -122,6 +123,8 @@ function Trading(_, hooks)
         incomingName = TradeReducer.IncomingRequest.Name
     end
 
+    local isUiBlocked = UIController:IsUiBlockedForMatch()
+
     return Roact.createElement("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
@@ -135,7 +138,7 @@ function Trading(_, hooks)
             size = UDim2.fromScale(0.5, 0.4),
             pos = UDim2.fromScale(0.5, 0.461),
             ratio = 2.2,
-            condition = TradeReducer.IncomingRequest ~= nil and TradeReducer.Trading == false,
+            condition = not isUiBlocked and TradeReducer.IncomingRequest ~= nil and TradeReducer.Trading == false,
             align = Enum.TextXAlignment.Left,
             hooks = hooks,
             showClose = false,

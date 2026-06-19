@@ -43,13 +43,30 @@ function UINotificationController:InitChecks()
 			local Rebirth = State["PlayerReducer"].Rebirth
 			local Wins = State["PlayerReducer"].Wins
 			local Money2 = State["PlayerReducer"].Money2
+			local Shoot = State["PlayerReducer"].Shoot or 0
+			local Pass = State["PlayerReducer"].Pass or 0
+			local Dribble = State["PlayerReducer"].Dribble or 0
 			local Areas = State["AreaReducer"].Areas
 			local Coaches = (State["CoachReducer"] and State["CoachReducer"].Coaches) or {}
 
-			if self.Stored_Datas["Wins"] ~= Wins then
-				self.Stored_Datas["Wins"] = Wins
+			if self.Stored_Datas["Shoot"] ~= Shoot or self.Stored_Datas["Pass"] ~= Pass or self.Stored_Datas["Dribble"] ~= Dribble or self.Stored_Datas["Rebirth"] ~= Rebirth then
+				self.Stored_Datas["Shoot"] = Shoot
+				self.Stored_Datas["Pass"] = Pass
+				self.Stored_Datas["Dribble"] = Dribble
+				self.Stored_Datas["Rebirth"] = Rebirth
 
-				if self.RebirthTable[Rebirth + 1] ~= nil and Wins >= self.RebirthTable[Rebirth + 1] then
+				local req = self.RebirthTable[Rebirth + 1]
+
+				if req == nil then
+					if Rebirth + 1 < 2000 then
+						local sizeOfArray = #self.RebirthTable
+						local last = self.RebirthTable[sizeOfArray]
+						local mult = math.pow(1.3, (Rebirth + 1) - sizeOfArray)
+						req = { A = last.A * mult, B = last.B * mult, C = last.C * mult }
+					end
+				end
+
+				if req and Shoot >= req.A and Pass >= req.B and Dribble >= req.C then
 					local RebirthCount = 1
 
 					if
@@ -65,12 +82,16 @@ function UINotificationController:InitChecks()
 
 					self.Notifications["Rebirth"] = RebirthCount
 					Store:dispatch(NotificationActions.setNotification("Rebirth", RebirthCount))
-				elseif self.RebirthTable[Rebirth + 1] ~= nil and Wins < self.RebirthTable[Rebirth + 1] then
+				else
 					local RebirthCount = 0
 
 					self.Notifications["Rebirth"] = RebirthCount
 					Store:dispatch(NotificationActions.setNotification("Rebirth", RebirthCount))
 				end
+			end
+
+			if self.Stored_Datas["Wins"] ~= Wins then
+				self.Stored_Datas["Wins"] = Wins
 
 				local AreaCount = 0
 				for name, area in self.Template.Areas do

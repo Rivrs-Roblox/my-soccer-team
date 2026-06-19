@@ -325,6 +325,65 @@ local function PackCard(props, hooks)
 			List = Roact.createElement("UIListLayout", { VerticalAlignment = 0, FillDirection = 0, SortOrder = 2 }),
 		}),
 
+		-- Prerequisite = Roact.createElement("Frame", {
+		-- 	AnchorPoint = Vector2.new(0, 0.5),
+		-- 	BackgroundColor3 = Color3.fromHex("ffffff"),
+		-- 	BackgroundTransparency = 1,
+		-- 	Position = UDim2.fromScale(0.27, 0.13),
+		-- 	BorderColor3 = Color3.fromHex("000000"),
+		-- 	ZIndex = 10,
+		-- 	BorderSizePixel = 0,
+		-- 	Size = UDim2.fromScale(0.18, 0.2),
+		-- 	Visible = (packData.Prerequisite and packData.Prerequisite.Rebirth or 0) > 0,
+		-- }, {
+		-- 	PriceText = Roact.createElement("TextLabel", {
+		-- 		LayoutOrder = 3,
+		-- 		TextWrapped = true,
+		-- 		TextColor3 = Color3.fromHex("ffffff"),
+		-- 		Text = FormatNumber(packData.Prerequisite and packData.Prerequisite.Rebirth or 0),
+		-- 		AnchorPoint = Vector2.new(0.5, 0.5),
+		-- 		FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
+		-- 		BackgroundTransparency = 1,
+		-- 		TextXAlignment = 0,
+		-- 		TextScaled = true,
+		-- 		Position = UDim2.fromScale(-0.618, 0.337),
+		-- 		TextSize = 14,
+		-- 		Size = UDim2.fromScale(0.659, 1),
+		-- 		ZIndex = 2,
+		-- 	}, {
+		-- 		UIStroke = Roact.createElement("UIStroke", { Color = Color3.fromHex("191919"), Thickness = 1.5 }),
+		-- 	}),
+		-- 	Icon = Roact.createElement("ImageLabel", {
+		-- 		AnchorPoint = Vector2.new(0.5, 0.5),
+		-- 		Image = UI.Rebirth,
+		-- 		BackgroundTransparency = 1,
+		-- 		Position = UDim2.fromScale(0.5, 0.5),
+		-- 		LayoutOrder = 2,
+		-- 		BackgroundColor3 = Color3.fromHex("ffffff"),
+		-- 		ScaleType = 3,
+		-- 		Size = UDim2.fromScale(1, 1),
+		-- 		ZIndex = 2,
+		-- 	}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
+		-- 	NeedText = Roact.createElement("TextLabel", {
+		-- 		LayoutOrder = 1,
+		-- 		TextWrapped = true,
+		-- 		TextColor3 = Color3.fromHex("ffffff"),
+		-- 		Text = "Prerequisite: ",
+		-- 		AnchorPoint = Vector2.new(0.5, 0.5),
+		-- 		FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
+		-- 		BackgroundTransparency = 1,
+		-- 		TextXAlignment = 0,
+		-- 		TextScaled = true,
+		-- 		Position = UDim2.fromScale(-0.618, 0.337),
+		-- 		TextSize = 14,
+		-- 		Size = UDim2.fromScale(0.659, 1),
+		-- 		ZIndex = 2,
+		-- 	}, {
+		-- 		UIStroke = Roact.createElement("UIStroke", { Color = Color3.fromHex("191919"), Thickness = 1.5 }),
+		-- 	}),
+		-- 	List = Roact.createElement("UIListLayout", { VerticalAlignment = 0, FillDirection = 0, SortOrder = 2 }),
+		-- }),
+
 		Prerequisite = Roact.createElement("Frame", {
 			AnchorPoint = Vector2.new(0, 0.5),
 			BackgroundColor3 = Color3.fromHex("ffffff"),
@@ -334,13 +393,15 @@ local function PackCard(props, hooks)
 			ZIndex = 10,
 			BorderSizePixel = 0,
 			Size = UDim2.fromScale(0.18, 0.2),
-			Visible = (packData.Prerequisite and packData.Prerequisite.Rebirth or 0) > 0,
+			Visible = (packData.Prerequisite and packData.Prerequisite.Area or "") ~= "",
 		}, {
 			PriceText = Roact.createElement("TextLabel", {
 				LayoutOrder = 3,
 				TextWrapped = true,
 				TextColor3 = Color3.fromHex("ffffff"),
-				Text = FormatNumber(packData.Prerequisite and packData.Prerequisite.Rebirth or 0),
+				Text = if (packData.Prerequisite and packData.Prerequisite.Area)
+					then "Unlock " .. Template.Areas[packData.Prerequisite.Area].Name
+					else "",
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 				BackgroundTransparency = 1,
@@ -353,17 +414,6 @@ local function PackCard(props, hooks)
 			}, {
 				UIStroke = Roact.createElement("UIStroke", { Color = Color3.fromHex("191919"), Thickness = 1.5 }),
 			}),
-			Icon = Roact.createElement("ImageLabel", {
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Image = UI.Rebirth,
-				BackgroundTransparency = 1,
-				Position = UDim2.fromScale(0.5, 0.5),
-				LayoutOrder = 2,
-				BackgroundColor3 = Color3.fromHex("ffffff"),
-				ScaleType = 3,
-				Size = UDim2.fromScale(1, 1),
-				ZIndex = 2,
-			}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
 			NeedText = Roact.createElement("TextLabel", {
 				LayoutOrder = 1,
 				TextWrapped = true,

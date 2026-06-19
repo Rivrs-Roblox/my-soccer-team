@@ -14,23 +14,25 @@ local MatchWorldService = Knit.CreateService({
 -- The Part is always re-read live so that its position reflects the current
 -- Workspace state, not a potentially stale boot-time snapshot.
 local cachedPlayerSpawnCFrame = nil
-local DEBUG_MATCH_WORLD = false
 
 local FOOTBALL_FLOOR_NAMES = {
 	FootballFloor = true,
 }
 
-local function FindPlayerSpawnDeep(): BasePart?
+local function FindPlayerSpawnDeep(zoneVariationId): BasePart?
 	local battleZoneRoot = MatchSceneQuery.GetBattleZoneRoot()
 	if not battleZoneRoot then
 		warn("[MatchWorld] FindPlayerSpawnDeep: BattleZone root not found (Workspace.Map.BattleZone)")
 		return nil
 	end
 
-	-- Try the canonical path first: Map.BattleZone.Runtime.PlayerSpawn
-	local directSpawn = MatchSceneQuery.GetPlayerSpawn()
+	local directSpawn = MatchSceneQuery.GetPlayerSpawn(zoneVariationId)
 	if directSpawn then
 		return directSpawn
+	end
+
+	if zoneVariationId ~= nil then
+		return nil
 	end
 
 	-- Fallback: deep scan of BattleZone descendants
@@ -91,27 +93,20 @@ function MatchWorldService:GetBattleZoneRoot(): Instance?
 	return MatchSceneQuery.GetBattleZoneRoot()
 end
 
-function MatchWorldService:GetPlayerSpawnCFrame(): CFrame?
+function MatchWorldService:GetPlayerSpawnCFrame(zoneVariationId): CFrame?
 	ConfigureFootballFloor(FindFootballFloorDeep())
 
 	-- Always read the Part live – never silently return a stale cached CFrame.
-	local playerSpawn = FindPlayerSpawnDeep()
+	local playerSpawn = FindPlayerSpawnDeep(zoneVariationId)
 	if playerSpawn then
 		local freshCFrame = playerSpawn.CFrame
 		cachedPlayerSpawnCFrame = freshCFrame
-		if DEBUG_MATCH_WORLD then
-			print(string.format(
-				"[MatchWorld] PlayerSpawn found: %s | Position=(%.2f, %.2f, %.2f)",
-				playerSpawn:GetFullName(),
-				freshCFrame.X, freshCFrame.Y, freshCFrame.Z
-			))
-		end
 		return freshCFrame
 	end
 
 	-- Part tidak ditemukan. Log path validation untuk membantu debug.
 	local validation = MatchSceneQuery.GetPathValidation and MatchSceneQuery.GetPathValidation() or {}
-	print(string.format(
+	warn(string.format(
 		"[MatchWorld] PlayerSpawn Part NOT FOUND. Path check: MapRoot=%s, BattleZone=%s, Runtime=%s, PlayerSpawn=%s, IsPart=%s",
 		tostring(validation.MapRoot),
 		tostring(validation.BattleZone),
@@ -124,7 +119,7 @@ function MatchWorldService:GetPlayerSpawnCFrame(): CFrame?
 	-- Ini mencegah match gagal total akibat transient replication lag
 	-- atau streaming gap sementara. Tetap warn agar mudah dideteksi.
 	if cachedPlayerSpawnCFrame then
-		print("[MatchWorld] Using CACHED PlayerSpawn CFrame as fallback — verify PlayerSpawn part exists in Workspace.Map.BattleZone.Runtime")
+		warn("[MatchWorld] Using CACHED PlayerSpawn CFrame as fallback - verify PlayerSpawn part exists in Workspace.Map.BattleZone.Runtime")
 		return cachedPlayerSpawnCFrame
 	end
 
@@ -150,7 +145,7 @@ function MatchWorldService:ValidateSetup(): (boolean, { string })
 	end
 
 	if not FindPlayerSpawnDeep() then
-		table.insert(errors, "Workspace.Map.BattleZone.Runtime.PlayerSpawn is missing or is not a BasePart.")
+		table.insert(errors, "Workspace.Map.BattleZone.Runtime.PlayerSpawn or Runtime.ZoneVariation.*.PlayerSpawn is missing or is not a BasePart.")
 	end
 
 	if not FindFootballFloorDeep() then
@@ -159,7 +154,7 @@ function MatchWorldService:ValidateSetup(): (boolean, { string })
 
 	local companionPivotsRoot = MatchSceneQuery.GetCompanionPivotsRoot()
 	if not companionPivotsRoot then
-		table.insert(errors, "Workspace.Map.BattleZone.Runtime.CompanionPivots is missing.")
+		table.insert(errors, "Workspace.Map.BattleZone.Runtime.CompanionPivots or Runtime.ZoneVariation.*.CompanionPivots is missing.")
 	else
 		for slotNumber = 2, 4 do
 			if MatchSceneQuery.GetCompanionPivot(slotNumber) == nil then
@@ -170,14 +165,12 @@ function MatchWorldService:ValidateSetup(): (boolean, { string })
 
 	local zonesRoot = MatchZoneQuery.GetZonesRoot()
 	if not zonesRoot then
-		table.insert(errors, "Workspace.Map.BattleZone.Runtime.Zones is missing.")
+		table.insert(errors, "Workspace.Map.BattleZone.Runtime.Zones or Runtime.ZoneVariation.*.Zones is missing.")
 	else
 		for _, zoneName in ipairs({ "Zone01", "Zone02", "Zone03" }) do
 			RequireZoneMarker(zoneName, "Area")
 			RequireZoneMarker(zoneName, "CarrierPoint")
 			RequireZoneMarker(zoneName, "EnemyApproachPoint")
-			RequireZoneMarker(zoneName, "DribbleCurveLeft")
-			RequireZoneMarker(zoneName, "DribbleCurveRight")
 			RequireZoneMarker(zoneName, "ExitPoint")
 		end
 
@@ -202,8 +195,6 @@ function MatchWorldService:KnitStart()
 		for _, message in ipairs(errors) do
 			warn("[MatchWorldService] " .. message)
 		end
-	else
-		print("[MatchWorldService] World setup validated.")
 	end
 end
 

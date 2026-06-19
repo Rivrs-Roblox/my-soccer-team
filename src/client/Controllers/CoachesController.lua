@@ -44,6 +44,7 @@ local CoachesController = Knit.CreateController({
 	CoachAnimationTracks = {},
 	CoachPreviousPositions = {},
 	RawCoachesByPlayer = {},
+	CharacterConnections = {},
 })
 
 --|| Local Functions ||--
@@ -57,6 +58,50 @@ local function getCoachName(coachData)
 end
 
 --|| Functions ||--
+
+function CoachesController:CleanupRenderedCoaches(player: Player, generatedCoaches: table)
+	local keptByName = {}
+
+	for _, coachModel in pairs(self.CoachInstances:GetChildren()) do
+		if coachModel:GetAttribute("Owner") ~= player.Name then
+			continue
+		end
+
+		local keep = false
+		for index in pairs(generatedCoaches) do
+			local modelName = player.Name .. "_" .. tostring(index)
+			if coachModel.Name == modelName and not keptByName[modelName] then
+				keptByName[modelName] = true
+				generatedCoaches[index].Model = coachModel
+				keep = true
+				break
+			end
+		end
+
+		if not keep then
+			local excludeIndex = table.find(RaycastExcludeModels, coachModel)
+			if excludeIndex then
+				table.remove(RaycastExcludeModels, excludeIndex)
+			end
+
+			if self.CoachAnimationTracks[coachModel] then
+				self.CoachAnimationTracks[coachModel]:Stop()
+				self.CoachAnimationTracks[coachModel]:Destroy()
+				self.CoachAnimationTracks[coachModel] = nil
+			end
+
+			self.CoachPreviousPositions[coachModel] = nil
+			coachModel:Destroy()
+		end
+	end
+
+	for index, grid in pairs(generatedCoaches) do
+		local model = grid.Model
+		if not (typeof(model) == "Instance" and model.Parent) then
+			grid.Model = ""
+		end
+	end
+end
 
 function CoachesController:DestroyRenderedCoach(player: Player, index: string | number)
 	local modelName = player.Name .. "_" .. tostring(index)
@@ -118,6 +163,9 @@ function CoachesController:AddCoaches(player: Player, coachesDataFormat: table)
 			self:DestroyRenderedCoach(player, i)
 		end
 	end
+
+	self:CleanupRenderedCoaches(player, generatedCoaches)
+	self:RefreshPlayerTarget(player)
 end
 
 function CoachesController:HandleMove()
@@ -199,33 +247,38 @@ function CoachesController:UnequipCoach(id: number)
 end
 
 function CoachesController:PlayerRemove(player: Player)
-	if self.CoachesInSession[player] then
-		local foundCoaches = Filter(self.CoachInstances:GetChildren(), function(coachModel: Model)
-			return coachModel:GetAttribute("Owner") == player.Name
-		end) :: { Model }
-
-		for _, coachModel in pairs(foundCoaches) do
-			local excludeIndex = table.find(RaycastExcludeModels, coachModel)
-			if excludeIndex then
-				table.remove(RaycastExcludeModels, excludeIndex)
-			end
-
-			if self.CoachAnimationTracks[coachModel] then
-				self.CoachAnimationTracks[coachModel]:Stop()
-				self.CoachAnimationTracks[coachModel]:Destroy()
-				self.CoachAnimationTracks[coachModel] = nil
-			end
-			self.CoachPreviousPositions[coachModel] = nil
-			coachModel:Destroy()
-		end
-
-		for Index, Model in pairs(RaycastExcludeModels) do
-			if Model.Name == player.Name then
-				table.remove(RaycastExcludeModels, Index)
-			end
-		end
-		self.CoachesInSession[player] = nil
+	if self.CharacterConnections[player] then
+		self.CharacterConnections[player]:Disconnect()
+		self.CharacterConnections[player] = nil
 	end
+
+	local foundCoaches = Filter(self.CoachInstances:GetChildren(), function(coachModel: Model)
+		return coachModel:GetAttribute("Owner") == player.Name
+	end) :: { Model }
+
+	for _, coachModel in pairs(foundCoaches) do
+		local excludeIndex = table.find(RaycastExcludeModels, coachModel)
+		if excludeIndex then
+			table.remove(RaycastExcludeModels, excludeIndex)
+		end
+
+		if self.CoachAnimationTracks[coachModel] then
+			self.CoachAnimationTracks[coachModel]:Stop()
+			self.CoachAnimationTracks[coachModel]:Destroy()
+			self.CoachAnimationTracks[coachModel] = nil
+		end
+		self.CoachPreviousPositions[coachModel] = nil
+		coachModel:Destroy()
+	end
+
+	for Index, Model in pairs(RaycastExcludeModels) do
+		if Model.Name == player.Name then
+			table.remove(RaycastExcludeModels, Index)
+		end
+	end
+
+	self.CoachesInSession[player] = nil
+	self.RawCoachesByPlayer[player] = nil
 end
 
 function CoachesController:RestoreCoachesBehindOwner(player: Player)
@@ -268,8 +321,11 @@ function CoachesController:RefreshPlayerTarget(player: Player)
 		return
 	end
 
-	local character = player.Character or player.CharacterAdded:Wait()
-	local hrp = character:WaitForChild("HumanoidRootPart")
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		return
+	end
 
 	for _, grid in pairs(grids) do
 		if grid.Information then
@@ -278,8 +334,28 @@ function CoachesController:RefreshPlayerTarget(player: Player)
 	end
 end
 
+function CoachesController:SetupPlayerCharacterLifecycle(player: Player)
+	if self.CharacterConnections[player] then
+		return
+	end
+
+	self.CharacterConnections[player] = player.CharacterAdded:Connect(function(character)
+		task.spawn(function()
+			character:WaitForChild("HumanoidRootPart")
+			self:RefreshPlayerTarget(player)
+
+			local coachesData = self.RawCoachesByPlayer[player]
+			if coachesData then
+				self:AddCoaches(player, coachesData)
+			end
+		end)
+	end)
+end
+
 function CoachesController:ReloadCoaches(player: Player)
 	self:PlayerRemove(player)
+	self:SetupPlayerCharacterLifecycle(player)
+
 	local success, coaches = CoachesService:GetCoaches(player):await()
 	if success and coaches then
 		local _, data = DataService:GetData(player):await()
@@ -346,6 +422,8 @@ function CoachesController:KnitStart()
 
 	task.spawn(function()
 		for _, Player in pairs(Players:GetPlayers()) do
+			self:SetupPlayerCharacterLifecycle(Player)
+
 			task.spawn(function()
 				local _ = Player.Character or Player.CharacterAdded:Wait()
 				local __, coachesData = CoachesService:GetCoaches(Player):await()
@@ -359,6 +437,8 @@ function CoachesController:KnitStart()
 	end)
 
 	Players.PlayerAdded:Connect(function(player: Player)
+		self:SetupPlayerCharacterLifecycle(player)
+
 		local __, coachesData = CoachesService:GetCoaches(player):await()
 		self:AddCoaches(player, coachesData)
 	end)

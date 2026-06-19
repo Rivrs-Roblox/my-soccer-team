@@ -4,6 +4,7 @@ StatTypes.Valid = {
 	Shoot = true,
 	Pass = true,
 	Dribble = true,
+	Stamina = true,
 }
 
 function StatTypes.Normalize(statType: string?): string?
@@ -18,6 +19,8 @@ function StatTypes.Normalize(statType: string?): string?
 		return "Pass"
 	elseif lowered == "dribble" then
 		return "Dribble"
+	elseif lowered == "stamina" then
+		return "Stamina"
 	end
 
 	return nil

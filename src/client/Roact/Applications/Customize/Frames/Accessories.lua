@@ -86,8 +86,8 @@ function Accessories(_, hooks)
 						local rarityPriority = Template.RarityPriority[templateData.Rarity or "Common"] or 100
 
 						local order = (isEquippedToCurrent and 0 or 10000000)
+							+ rarityPriority * 100000
 							+ statOffset
-							+ rarityPriority
 							+ (tonumber(id) or 0)
 
 						AccessoriesCards[id] = AccessoryCard({
@@ -108,9 +108,76 @@ function Accessories(_, hooks)
 			end
 		end
 	end
-
 	local rows = math.max(1, math.ceil(numCards / 3))
 	local canvasY = math.max(1, rows * 0.45 + 0.05)
+
+	local function createSlotButton(slotNum, xPos)
+		local isSelected = (selectedSlot == slotNum)
+		local gradientStart = isSelected and Color3.fromHex("ffaa00") or Color3.fromHex("2f37a5")
+		local gradientEnd = isSelected and Color3.fromHex("cc5500") or Color3.fromHex("13133d")
+		local strokeColor = isSelected and Color3.fromHex("ffcc00") or Color3.fromHex("1e88d9")
+
+		local slotCharId = TeamReducer.EquippedSoccerCharacters and (TeamReducer.EquippedSoccerCharacters[slotNum] or TeamReducer.EquippedSoccerCharacters[tostring(slotNum)])
+		local slotCharData = slotCharId and InventoryReducer.SoccerCharacters and (InventoryReducer.SoccerCharacters[slotCharId] or InventoryReducer.SoccerCharacters[tostring(slotCharId)])
+		local iconImage = "rbxassetid://76558147588196"
+		if slotCharData and UI[slotCharData.Name] then
+			iconImage = UI[slotCharData.Name]
+		end
+
+		return Roact.createElement("ImageButton", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(xPos, 0.89),
+			BorderColor3 = Color3.fromHex("000000"),
+			Size = UDim2.fromScale(0.25, 0.25),
+			BorderSizePixel = 0,
+			BackgroundColor3 = Color3.fromHex("ffffff"),
+			ZIndex = 2,
+
+			[Roact.Event.MouseButton1Down] = function()
+				Sound:PlaySound("UI_Click")
+				Store:dispatch(AccessoryActions.setSelectedSlot(slotNum))
+			end,
+		}, {
+			ButtonText = Roact.createElement("TextLabel", {
+				TextWrapped = true,
+				TextColor3 = Color3.fromHex("fafafa"),
+				Text = tostring(slotNum),
+				AnchorPoint = Vector2.new(0.5, 1),
+				FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
+				BackgroundTransparency = 1,
+				Position = UDim2.fromScale(0.5, 0.96),
+				TextSize = 14,
+				ZIndex = 5,
+				TextScaled = true,
+				Size = UDim2.fromScale(0.91, 0.25),
+			}),
+			UIGradient = Roact.createElement("UIGradient", {
+				Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, gradientStart),
+					ColorSequenceKeypoint.new(1, gradientEnd),
+				}),
+				Rotation = 90,
+			}),
+			UICorner = Roact.createElement("UICorner", {
+				CornerRadius = UDim.new(0, 2),
+			}),
+			UIStroke = Roact.createElement("UIStroke", {
+				Color = strokeColor,
+				Thickness = 2,
+			}),
+			Icon = Roact.createElement("ImageLabel", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				ScaleType = 3,
+				BackgroundTransparency = 1,
+				Position = UDim2.fromScale(0.5, 0.37),
+				BackgroundColor3 = Color3.fromHex("ffffff"),
+				ZIndex = 2,
+				Image = iconImage,
+				Size = UDim2.fromScale(0.85, 0.85),
+			}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
+			Ratio = Roact.createElement("UIAspectRatioConstraint", {}),
+		})
+	end
 
 	return Roact.createElement("Frame", {
 		Visible = UIReducer.CurrentCustomizeUI == CustomizeConstants.Accessories,
@@ -196,168 +263,12 @@ function Accessories(_, hooks)
 				BackgroundColor3 = Color3.fromHex("ffffff"),
 				ZIndex = 2,
 			}, {
-				["1"] = Roact.createElement("ImageButton", {
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					Position = UDim2.fromScale(0.15, 0.89),
-					BorderColor3 = Color3.fromHex("000000"),
-					Size = UDim2.fromScale(0.25, 0.25),
-					BorderSizePixel = 0,
-					BackgroundColor3 = Color3.fromHex("ffffff"),
-					ZIndex = 2,
-
-					[Roact.Event.MouseButton1Down] = function()
-						Sound:PlaySound("UI_Click")
-						Store:dispatch(AccessoryActions.setSelectedSlot(1))
-					end,
-				}, {
-					ButtonText = Roact.createElement("TextLabel", {
-						TextWrapped = true,
-						TextColor3 = Color3.fromHex("fafafa"),
-						Text = "1",
-						AnchorPoint = Vector2.new(0.5, 1),
-						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
-						BackgroundTransparency = 1,
-						Position = UDim2.fromScale(0.5, 0.96),
-						TextSize = 14,
-						ZIndex = 5,
-						TextScaled = true,
-						Size = UDim2.fromScale(0.91, 0.25),
-					}),
-					UIGradient = Roact.createElement("UIGradient", {
-						Color = ColorSequence.new({
-							ColorSequenceKeypoint.new(0, Color3.fromHex("2f37a5")),
-							ColorSequenceKeypoint.new(1, Color3.fromHex("13133d")),
-						}),
-						Rotation = 90,
-					}),
-					UICorner = Roact.createElement("UICorner", {
-						CornerRadius = UDim.new(0, 2),
-					}),
-					UIStroke = Roact.createElement("UIStroke", {
-						Color = Color3.fromHex("1e88d9"),
-						Thickness = 2,
-					}),
-					Icon = Roact.createElement("ImageLabel", {
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						ScaleType = 3,
-						BackgroundTransparency = 1,
-						Position = UDim2.fromScale(0.5, 0.37),
-						BackgroundColor3 = Color3.fromHex("ffffff"),
-						ZIndex = 2,
-						Image = "rbxassetid://76558147588196",
-						Size = UDim2.fromScale(0.65, 0.65),
-					}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
-					Ratio = Roact.createElement("UIAspectRatioConstraint", {}),
-				}),
+				["1"] = createSlotButton(1, 0.15),
 				UICorner = Roact.createElement("UICorner", {
 					CornerRadius = UDim.new(0, 10),
 				}),
-				["3"] = Roact.createElement("ImageButton", {
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					Position = UDim2.fromScale(0.85, 0.89),
-					BorderColor3 = Color3.fromHex("000000"),
-					Size = UDim2.fromScale(0.25, 0.25),
-					BorderSizePixel = 0,
-					BackgroundColor3 = Color3.fromHex("ffffff"),
-					ZIndex = 2,
-
-					[Roact.Event.MouseButton1Down] = function()
-						Sound:PlaySound("UI_Click")
-						Store:dispatch(AccessoryActions.setSelectedSlot(3))
-					end,
-				}, {
-					ButtonText = Roact.createElement("TextLabel", {
-						TextWrapped = true,
-						TextColor3 = Color3.fromHex("fafafa"),
-						Text = "3",
-						AnchorPoint = Vector2.new(0.5, 1),
-						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
-						BackgroundTransparency = 1,
-						Position = UDim2.fromScale(0.5, 0.96),
-						TextSize = 14,
-						ZIndex = 5,
-						TextScaled = true,
-						Size = UDim2.fromScale(0.91, 0.25),
-					}),
-					UIGradient = Roact.createElement("UIGradient", {
-						Color = ColorSequence.new({
-							ColorSequenceKeypoint.new(0, Color3.fromHex("2f37a5")),
-							ColorSequenceKeypoint.new(1, Color3.fromHex("13133d")),
-						}),
-						Rotation = 90,
-					}),
-					UICorner = Roact.createElement("UICorner", {
-						CornerRadius = UDim.new(0, 2),
-					}),
-					Ratio = Roact.createElement("UIAspectRatioConstraint", {}),
-					Icon = Roact.createElement("ImageLabel", {
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						ScaleType = 3,
-						BackgroundTransparency = 1,
-						Position = UDim2.fromScale(0.5, 0.37),
-						BackgroundColor3 = Color3.fromHex("ffffff"),
-						ZIndex = 2,
-						Image = "rbxassetid://76558147588196",
-						Size = UDim2.fromScale(0.65, 0.65),
-					}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
-					UIStroke = Roact.createElement("UIStroke", {
-						Color = Color3.fromHex("1e88d9"),
-						Thickness = 2,
-					}),
-				}),
-				["2"] = Roact.createElement("ImageButton", {
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					Position = UDim2.fromScale(0.5, 0.89),
-					BorderColor3 = Color3.fromHex("000000"),
-					Size = UDim2.fromScale(0.25, 0.25),
-					BorderSizePixel = 0,
-					BackgroundColor3 = Color3.fromHex("ffffff"),
-					ZIndex = 2,
-
-					[Roact.Event.MouseButton1Down] = function()
-						Sound:PlaySound("UI_Click")
-						Store:dispatch(AccessoryActions.setSelectedSlot(2))
-					end,
-				}, {
-					ButtonText = Roact.createElement("TextLabel", {
-						TextWrapped = true,
-						TextColor3 = Color3.fromHex("fafafa"),
-						Text = "2",
-						AnchorPoint = Vector2.new(0.5, 1),
-						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
-						BackgroundTransparency = 1,
-						Position = UDim2.fromScale(0.5, 0.96),
-						TextSize = 14,
-						ZIndex = 5,
-						TextScaled = true,
-						Size = UDim2.fromScale(0.91, 0.25),
-					}),
-					UIGradient = Roact.createElement("UIGradient", {
-						Color = ColorSequence.new({
-							ColorSequenceKeypoint.new(0, Color3.fromHex("2f37a5")),
-							ColorSequenceKeypoint.new(1, Color3.fromHex("13133d")),
-						}),
-						Rotation = 90,
-					}),
-					UICorner = Roact.createElement("UICorner", {
-						CornerRadius = UDim.new(0, 2),
-					}),
-					Ratio = Roact.createElement("UIAspectRatioConstraint", {}),
-					Icon = Roact.createElement("ImageLabel", {
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						ScaleType = 3,
-						BackgroundTransparency = 1,
-						Position = UDim2.fromScale(0.5, 0.37),
-						BackgroundColor3 = Color3.fromHex("ffffff"),
-						ZIndex = 2,
-						Image = "rbxassetid://76558147588196",
-						Size = UDim2.fromScale(0.65, 0.65),
-					}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
-					UIStroke = Roact.createElement("UIStroke", {
-						Color = Color3.fromHex("1e88d9"),
-						Thickness = 2,
-					}),
-				}),
+				["2"] = createSlotButton(2, 0.5),
+				["3"] = createSlotButton(3, 0.85),
 			}),
 			Wardrobe = Roact.createElement("Frame", {
 				AnchorPoint = Vector2.new(0.5, 0.5),
@@ -370,19 +281,20 @@ function Accessories(_, hooks)
 				Size = UDim2.fromScale(0.58, 1),
 				ZIndex = 2,
 			}, {
-				Scroll = Roact.createElement("ScrollingFrame", {
+				["Scroll_" .. UIReducer.CurrentAccessoriesUI] = Roact.createElement("ScrollingFrame", {
 					AutomaticCanvasSize = Enum.AutomaticSize.None,
 					ScrollBarThickness = 0,
-					AnchorPoint = Vector2.new(0.5, 0.5),
+					AnchorPoint = Vector2.new(0.5, 0),
 					BackgroundTransparency = 1,
-					Position = UDim2.fromScale(0.5, 0.497),
-					Size = UDim2.fromScale(0.95, 0.712),
+					Position = UDim2.fromScale(0.5, 0.12),
+					Size = UDim2.fromScale(0.95, 0.76),
 					ScrollBarImageTransparency = 0.32,
 					BorderSizePixel = 0,
 					CanvasSize = UDim2.fromScale(0, canvasY),
+					CanvasPosition = Vector2.new(0, 0),
 				}, {
 					Padding = Roact.createElement("UIPadding", {
-						PaddingTop = UDim.new(0.03, 0),
+						PaddingTop = UDim.new(0.015 / canvasY, 0),
 						PaddingLeft = UDim.new(0.03, 0),
 					}),
 					Grid = Roact.createElement("UIGridLayout", {

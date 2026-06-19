@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Sound = require(ReplicatedStorage.Packages.Sound)
 local MatchBallConfig = require(script.Parent.Parent.Config.Match.MatchBallConfig)
+local MatchShootCinematicDirector = require(script.Parent.Parent.Helpers.Match.Presentation.MatchShootCinematicDirector)
 
 local MATCH_RUNTIME_FOLDER_NAME = "Runtime"
 local MATCH_BALL_RUNTIME_NAME = "LocalMatchBall"
@@ -511,9 +512,16 @@ function MatchBallController:_setTemplateSpecialEffectsEnabled(enabled: boolean)
 	self:_setEffectGroupEnabled("SpecialEffects", enabled == true)
 end
 
-function MatchBallController:_setShotFlightEffectsEnabled(enabled: boolean)
-	self:_setEffectGroupEnabled("Trail", false) -- Force off the ugly white trail group
-	self:_setEffectGroupEnabled("SpecialEffects", enabled == true)
+function MatchBallController:_setShotFlightEffectsEnabled(enabled: boolean, useSimpleTrail: boolean?)
+	if useSimpleTrail == true then
+		-- Normal shoot: enable simple Trail (white follow), disable fancy SpecialEffects
+		self:_setEffectGroupEnabled("Trail", true)
+		self:_setEffectGroupEnabled("SpecialEffects", false)
+	else
+		-- Perfect/special shoot: enable SpecialEffects, disable simple Trail
+		self:_setEffectGroupEnabled("Trail", false)
+		self:_setEffectGroupEnabled("SpecialEffects", enabled == true)
+	end
 end
 
 function MatchBallController:SetHoldEffectEnabled(enabled: boolean)
@@ -1129,11 +1137,12 @@ function MatchBallController:PlayEpicShot(startPosition: Vector3, endPosition: V
 	local lateralCurve = curveMagnitude * curveSign
 
 	local enableFlightEffects = options.EnableFlightEffects == true or isSpecialShot
+	local useSimpleTrail = not enableFlightEffects  -- Normal shoot gets a simple white trail
 
 	self.CurrentFollowActor = nil
 	self:_setBallVisible(true)
 	self:_disableAllTemplateShotEffects()
-	self:_setShotFlightEffectsEnabled(enableFlightEffects)
+	self:_setShotFlightEffectsEnabled(enableFlightEffects, useSimpleTrail)
 	self:_moveBallCFrame(self:_buildSpinningCFrame(startPosition, startPosition + fallbackLook, fallbackLook, 0))
 
 	self.MotionConnection = RunService.RenderStepped:Connect(function()
@@ -1226,6 +1235,11 @@ function MatchBallController:PlayEpicShot(startPosition: Vector3, endPosition: V
 						Duration = options.DropDuration,
 						DropDistance = options.DropDistance,
 						BounceHeight = options.DropBounceHeight,
+						RollAfterDrop = options.RollAfterDrop,
+						RollDirection = options.RollDirection,
+						RollSpeed = options.RollSpeed,
+						RollDeceleration = options.RollDeceleration,
+						RollMaxDuration = options.RollMaxDuration,
 					})
 				end
 
@@ -1238,6 +1252,356 @@ function MatchBallController:PlayEpicShot(startPosition: Vector3, endPosition: V
 			end
 		end
 	end)
+end
+
+function MatchBallController:PlayGoalHoldShot(startPosition: Vector3, holdPosition: Vector3, endPosition: Vector3, options)
+	options = options or {}
+
+	local driverPart = self:_spawnBallIfNeeded()
+	if not driverPart then
+		warn("[MatchBallController] PlayGoalHoldShot failed: ball driver part is missing.")
+		return
+	end
+
+	self:_stopMotion()
+
+	local motionToken = self.ActiveMotionToken
+	local sessionVersion = self.SessionVersion
+	local stepVersion = self.StepVersion
+	
+	local config = MatchBallConfig.GoalHoldShot or {}
+	local holdAlpha = math.clamp(config.HoldAlpha or 0.72, 0.1, 0.95)
+	
+	local holdDuration = config.HoldDurationYellow or 0.8
+	if options.IsSpecialShot then
+		holdDuration = config.HoldDurationSpecial or 1.8
+	elseif options.EnableFlightEffects then
+		holdDuration = config.HoldDurationGreen or 1.2
+	end
+	
+	if options.HoldDurationOverride then
+		holdDuration = options.HoldDurationOverride
+	end
+	
+	local phase2Multiplier = config.Phase2SpeedMultiplier or 1.45
+	local holdSpinSpeed = config.HoldSpinSpeed or 4.5
+
+	local epicShotConfig = MatchBallConfig.EpicShot or {}
+	local basePhase1Duration = tonumber(epicShotConfig.DurationPhase1) or 0.4
+	local basePhase2Duration = tonumber(epicShotConfig.DurationPhase2) or 0.2
+	local baseTotalDuration = math.max(basePhase1Duration + basePhase2Duration, 0.1)
+
+	local overrideDuration = tonumber(options.DurationOverride or options.TotalDuration or options.Duration)
+	if overrideDuration and overrideDuration > 0 then
+		baseTotalDuration = math.max(overrideDuration, 0.1)
+	end
+	
+	local phase1Duration = baseTotalDuration * holdAlpha
+	local phase2Duration = (baseTotalDuration * (1 - holdAlpha)) / phase2Multiplier
+	
+	local startTime = os.clock()
+	local fallbackLook = (holdPosition - startPosition).Magnitude > 0.001 and (holdPosition - startPosition).Unit or Vector3.new(0, 0, -1)
+	local lastPosition = startPosition
+	
+	local stableSeed = math.floor((startPosition.X + startPosition.Z) * 10)
+	local curveSign = (stableSeed % 2 == 0) and 1 or -1
+	local curveMagnitude = options.EnableFlightEffects and 4.15 or 2.50
+	local lateralCurve = curveMagnitude * curveSign
+	
+	local enableFlightEffects = options.EnableFlightEffects == true or options.IsSpecialShot
+	local useSimpleTrail = not enableFlightEffects
+
+	self.CurrentFollowActor = nil
+	self:_setBallVisible(true)
+	self:_disableAllTemplateShotEffects()
+	self:_setShotFlightEffectsEnabled(enableFlightEffects, useSimpleTrail)
+	self:_moveBallCFrame(self:_buildSpinningCFrame(startPosition, startPosition + fallbackLook, fallbackLook, 0))
+
+	local currentPhase = 1
+	local holdStartTime = 0
+	local holdShakeTriggered = false
+	local HOLD_SHAKE_STRENGTH = 1.4  -- dinaikkan agar lebih terasa
+	local HOLD_SHAKE_FADE_IN = 0.04
+	local HOLD_SHAKE_FADE_OUT = 0.04  -- pendek biar shake terasa sampai akhir hold
+	local handSnapStartPosition = nil
+	local handSnapTargetPosition = nil
+	local handSnapStartTime = 0
+	local handSnapBlendDuration = math.max(tonumber(options.HandSnapBlendDuration) or 0, 0)
+	local handRetargetStartPosition = nil
+	local handRetargetTargetPosition = nil
+	local handRetargetStartTime = 0
+	local handRetargetDuration = 0
+	local handRetargetMinDuration = math.max(tonumber(options.HandRetargetMinDuration) or 0.16, 0)
+	local handRetargetMaxDuration = math.max(tonumber(options.HandRetargetMaxDuration) or 0.32, handRetargetMinDuration)
+	
+	self.GoalHoldTriggered = false
+
+	self.MotionConnection = RunService.RenderStepped:Connect(function(deltaTime)
+		if not self:_isMotionScopeCurrent(sessionVersion, stepVersion, motionToken) then
+			self.MotionConnection = DisconnectConnection(self.MotionConnection)
+			self:_setTemplateSpecialEffectsEnabled(false)
+			return
+		end
+
+		local elapsed = os.clock() - startTime
+		local currentPosition = lastPosition
+
+		if currentPhase == 1 then
+			if typeof(self.GoalHoldSnapPosition) == "Vector3" and not handRetargetTargetPosition then
+				handRetargetStartPosition = lastPosition
+				handRetargetTargetPosition = self.GoalHoldSnapPosition
+				handRetargetStartTime = os.clock()
+				local remainingPhase1 = math.max(phase1Duration - elapsed, 0)
+				handRetargetDuration = math.max(
+					math.clamp(remainingPhase1, handRetargetMinDuration, handRetargetMaxDuration),
+					0.001
+				)
+			end
+
+			if elapsed >= phase1Duration then
+				if options.WaitForKeeperContact and not self.GoalHoldTriggered then
+					-- Just hold at the position, waiting for TriggerGoalHoldPhase
+					local activeHoldPosition = holdPosition
+					if options.TargetInstance then
+						local ok, resolvedCFrame = pcall(function()
+							return self:_resolveWorldCFrame(options.TargetInstance)
+						end)
+						if ok and resolvedCFrame then
+							activeHoldPosition = resolvedCFrame.Position
+						end
+					end
+					currentPosition = activeHoldPosition
+					self.SpinAngle = (self.SpinAngle + (holdSpinSpeed * deltaTime)) % (math.pi * 2)
+					-- Camera shake sekali saat keeper mulai menahan, durasi = durasi hold
+					if not holdShakeTriggered then
+						holdShakeTriggered = true
+						if MatchShootCinematicDirector and MatchShootCinematicDirector.ShakeActiveCamera then
+							MatchShootCinematicDirector.ShakeActiveCamera(HOLD_SHAKE_STRENGTH, holdDuration, HOLD_SHAKE_FADE_IN, HOLD_SHAKE_FADE_OUT)
+						end
+					end
+				else
+					currentPhase = 2
+					holdStartTime = os.clock()
+					if handRetargetTargetPosition then
+						holdPosition = handRetargetTargetPosition
+						if handSnapBlendDuration > 0 and (lastPosition - handRetargetTargetPosition).Magnitude > 0.05 then
+							handSnapStartPosition = lastPosition
+							handSnapTargetPosition = handRetargetTargetPosition
+							handSnapStartTime = holdStartTime
+						end
+						handRetargetStartPosition = nil
+						handRetargetTargetPosition = nil
+						self.GoalHoldSnapPosition = nil
+					end
+					-- Blend holdPosition to keeper's hand if provided via TriggerGoalHoldPhase.
+					if typeof(self.GoalHoldSnapPosition) == "Vector3" then
+						local snapPosition = self.GoalHoldSnapPosition
+						if handSnapBlendDuration > 0 then
+							handSnapStartPosition = lastPosition
+							handSnapTargetPosition = snapPosition
+							handSnapStartTime = holdStartTime
+						else
+							holdPosition = snapPosition
+						end
+						self.GoalHoldSnapPosition = nil
+					end
+					self:_setShotFlightEffectsEnabled(false, false)
+					self:_setEffectGroupEnabled("HoldEffects", true)
+					
+					if type(options.OnHoldStart) == "function" then
+						task.spawn(options.OnHoldStart)
+					end
+				end
+			else
+				if handRetargetStartPosition and handRetargetTargetPosition then
+					local retargetAlpha = math.clamp((os.clock() - handRetargetStartTime) / handRetargetDuration, 0, 1)
+					local easedRetargetAlpha = 1 - math.pow(1 - retargetAlpha, 3)
+					currentPosition = handRetargetStartPosition:Lerp(handRetargetTargetPosition, easedRetargetAlpha)
+					if retargetAlpha >= 1 then
+						holdPosition = handRetargetTargetPosition
+					end
+				else
+					local alpha = math.clamp(elapsed / phase1Duration, 0, 1)
+					-- PBS-style deceleration: use stronger Out easing for smooth slowdown near keeper
+					-- Cubic Out (1 - (1-x)^3) decelerates more dramatically than Quad InOut
+					local easedAlpha
+					if alpha < 0.5 then
+						-- First half: normal acceleration (Quad In)
+						easedAlpha = 2 * alpha * alpha
+					else
+						-- Second half: stronger deceleration (Cubic Out for last portion)
+						local t = (alpha - 0.5) * 2  -- 0..1 for second half
+						easedAlpha = 0.5 + 0.5 * (1 - math.pow(1 - t, 3))
+					end
+					
+					local activeHoldPosition = holdPosition
+					if options.TargetInstance then
+						local ok, resolvedCFrame = pcall(function()
+							return self:_resolveWorldCFrame(options.TargetInstance)
+						end)
+						if ok and resolvedCFrame then
+							local targetBlend = math.pow(easedAlpha, 2.5)
+							activeHoldPosition = holdPosition:Lerp(resolvedCFrame.Position, targetBlend)
+						end
+					end
+
+					currentPosition = startPosition:Lerp(activeHoldPosition, easedAlpha)
+					local toTarget = Vector3.new(activeHoldPosition.X - startPosition.X, 0, activeHoldPosition.Z - startPosition.Z)
+					if toTarget.Magnitude > 0.001 then
+						local lateralDir = toTarget.Unit:Cross(Vector3.new(0, 1, 0))
+						local curveAmount = 4 * lateralCurve * easedAlpha * (1 - easedAlpha)
+						currentPosition += lateralDir * curveAmount
+					end
+					
+					local arcHeight = math.sin(easedAlpha * math.pi) * ((tonumber(options.HeightPhase1) or 1.2) * holdAlpha)
+					currentPosition += Vector3.new(0, arcHeight, 0)
+				end
+			end
+		end
+
+		if currentPhase == 2 then
+			local holdElapsed = os.clock() - holdStartTime
+			if holdElapsed >= holdDuration then
+				currentPhase = 3
+				startTime = os.clock()
+				self:_setEffectGroupEnabled("HoldEffects", false)
+				self:_setShotFlightEffectsEnabled(enableFlightEffects, useSimpleTrail)
+				
+				local activeHoldPosition = holdPosition
+				if options.TargetInstance then
+					local ok, resolvedCFrame = pcall(function()
+						return self:_resolveWorldCFrame(options.TargetInstance)
+					end)
+					if ok and resolvedCFrame then
+						activeHoldPosition = resolvedCFrame.Position
+					end
+				end
+				holdPosition = activeHoldPosition
+
+				self:PlayImpactEffect(holdPosition, {
+					EmitCount = options.HoldReleaseEmitCount or 24,
+					Lifetime = options.HoldReleaseLifetime or 0.5,
+				})
+				
+				if type(options.OnHoldRelease) == "function" then
+					task.spawn(options.OnHoldRelease)
+				end
+			else
+				-- Spin visually during hold
+				self.SpinAngle = (self.SpinAngle + (holdSpinSpeed * deltaTime)) % (math.pi * 2)
+				if handSnapStartPosition and handSnapTargetPosition then
+					local snapAlpha = math.clamp((os.clock() - handSnapStartTime) / handSnapBlendDuration, 0, 1)
+					local easedSnapAlpha = 1 - math.pow(1 - snapAlpha, 3)
+					currentPosition = handSnapStartPosition:Lerp(handSnapTargetPosition, easedSnapAlpha)
+					if snapAlpha >= 1 then
+						holdPosition = handSnapTargetPosition
+						handSnapStartPosition = nil
+						handSnapTargetPosition = nil
+					end
+				else
+					local activeHoldPosition = holdPosition
+					if options.TargetInstance then
+						local ok, resolvedCFrame = pcall(function()
+							return self:_resolveWorldCFrame(options.TargetInstance)
+						end)
+						if ok and resolvedCFrame then
+							activeHoldPosition = resolvedCFrame.Position
+						end
+					end
+					currentPosition = activeHoldPosition
+				end
+			end
+		end
+
+		if currentPhase == 3 then
+			local phase2Elapsed = os.clock() - startTime
+			if phase2Elapsed >= phase2Duration then
+				currentPosition = endPosition
+				
+				self:_moveBallCFrame(self:_buildSpinningCFrame(endPosition, endPosition + fallbackLook, fallbackLook, 0))
+				self.MotionConnection = DisconnectConnection(self.MotionConnection)
+
+				if options.ImpactAtFinish == true then
+					self:PlayImpactEffect(endPosition, {
+						EmitCount = options.ImpactEmitCount,
+						Lifetime = options.ImpactLifetime,
+					})
+				end
+
+				if type(options.OnImpactAtFinish) == "function" then
+					task.defer(function()
+						if self:_isMotionScopeCurrent(sessionVersion, stepVersion, motionToken) then
+							options.OnImpactAtFinish(endPosition)
+						end
+					end)
+				end
+
+				local shouldDropAfterFinish = options.DropAfterFinish == true
+				task.delay(options.IsSpecialShot and 0.62 or 0.22, function()
+					if self:_isMotionScopeCurrent(sessionVersion, stepVersion, motionToken) then
+						self:_setTemplateSpecialEffectsEnabled(false)
+						self:_setEffectGroupEnabled("Trail", false)
+					end
+				end)
+
+				if shouldDropAfterFinish then
+					local function startGoalDrop()
+						if sessionVersion ~= self.SessionVersion or stepVersion ~= self.StepVersion then
+							return
+						end
+
+						local dropPosition = self:GetBallPosition() or endPosition
+						self:DropBallToGround(dropPosition, {
+							Duration = options.DropDuration,
+							DropDistance = options.DropDistance,
+							BounceHeight = options.DropBounceHeight,
+							RollAfterDrop = options.RollAfterDrop,
+							RollDirection = options.RollDirection,
+							RollSpeed = options.RollSpeed,
+							RollDeceleration = options.RollDeceleration,
+							RollMaxDuration = options.RollMaxDuration,
+						})
+					end
+
+					local dropDelay = math.max(tonumber(options.DropDelay) or 0.04, 0)
+					if dropDelay <= 0 then
+						task.defer(startGoalDrop)
+					else
+						task.delay(dropDelay, startGoalDrop)
+					end
+				end
+				return
+			else
+				local alpha = math.clamp(phase2Elapsed / phase2Duration, 0, 1)
+				currentPosition = holdPosition:Lerp(endPosition, alpha)
+			end
+		end
+
+		local lookDirection = currentPhase == 3 and (endPosition - holdPosition) or (holdPosition - startPosition)
+		lookDirection = lookDirection.Magnitude <= 0.01 and fallbackLook or lookDirection.Unit
+
+		local spinDelta = 0
+		if currentPhase ~= 2 then
+			spinDelta = (currentPosition - lastPosition).Magnitude * 2.75
+		end
+		
+		lastPosition = currentPosition
+		
+		if currentPhase == 2 then
+			-- Already spun above, just update CFrame
+			self:_moveBallCFrame(self:_applyWholeBallSpinIfNeeded(CFrame.new(currentPosition), true))
+		else
+			self:_moveBallCFrame(self:_buildSpinningCFrame(currentPosition, currentPosition + lookDirection, fallbackLook, spinDelta))
+		end
+	end)
+end
+
+
+function MatchBallController:TriggerGoalHoldPhase(handPosition: Vector3?)
+	if typeof(handPosition) == "Vector3" then
+		self.GoalHoldSnapPosition = handPosition
+	end
+	self.GoalHoldTriggered = true
 end
 
 
@@ -1628,7 +1992,99 @@ function MatchBallController:DropBallToGround(startPosition: Vector3?, options)
 			self:_moveBallCFrame(self:_buildSpinningCFrame(endPosition, endPosition + fallbackLook, fallbackLook, 0))
 			PlayBallBounceSound(driverPart)
 			self.MotionConnection = DisconnectConnection(self.MotionConnection)
+
+			-- After drop, continue rolling forward like a real ball (PBS-style)
+			if options.RollAfterDrop == true then
+				task.defer(function()
+					if self:_isMotionScopeCurrent(sessionVersion, stepVersion) then
+						self:RollBallForward(endPosition, options.RollDirection, {
+							Speed = options.RollSpeed or 8.0,
+							Deceleration = options.RollDeceleration or 6.0,
+							MaxDuration = options.RollMaxDuration or 3.0,
+						})
+					end
+				end)
+			end
 		end
+	end)
+
+	return motionToken
+end
+
+function MatchBallController:RollBallForward(startPosition: Vector3?, forwardDirection: Vector3?, options)
+	options = options or {}
+
+	local resolvedStart = startPosition or self:GetBallPosition()
+	if typeof(resolvedStart) ~= "Vector3" then
+		return nil
+	end
+
+	local driverPart = self:_spawnBallIfNeeded()
+	if not driverPart then
+		return nil
+	end
+
+	self:_stopMotion()
+	self.CurrentFollowActor = nil
+	self:_setBallVisible(true)
+	self:_disableAllTemplateShotEffects()
+
+	-- Flatten direction to ground plane
+	local forward = forwardDirection or Vector3.new(0, 0, 1)
+	if forward.Magnitude < 0.001 then
+		forward = Vector3.new(0, 0, 1)
+	else
+		forward = Vector3.new(forward.X, 0, forward.Z)
+		if forward.Magnitude < 0.001 then
+			forward = Vector3.new(0, 0, 1)
+		else
+			forward = forward.Unit
+		end
+	end
+
+	local rollSpeed = tonumber(options.Speed) or 8.0
+	local deceleration = tonumber(options.Deceleration) or 6.0
+	local maxDuration = tonumber(options.MaxDuration) or 3.0
+	local bounceHeight = tonumber(options.BounceHeight) or 0.06
+	local bounceFrequency = tonumber(options.BounceFrequency) or 3.5
+
+	local startedAt = os.clock()
+	local lastPosition = resolvedStart
+	local groundY = resolvedStart.Y
+	local fallbackLook = forward
+
+	local motionToken = self.ActiveMotionToken
+	local sessionVersion = self.SessionVersion
+	local stepVersion = self.StepVersion
+
+	self:_moveBallCFrame(self:_buildSpinningCFrame(resolvedStart, resolvedStart + fallbackLook, fallbackLook, 0))
+
+	self.MotionConnection = RunService.RenderStepped:Connect(function(deltaTime)
+		if not self:_isMotionScopeCurrent(sessionVersion, stepVersion, motionToken) then
+			self.MotionConnection = DisconnectConnection(self.MotionConnection)
+			return
+		end
+
+		local elapsed = os.clock() - startedAt
+		local currentSpeed = math.max(rollSpeed - (deceleration * elapsed), 0)
+
+		-- Stop when speed is negligible or time exceeded
+		if currentSpeed <= 0.15 or elapsed >= maxDuration then
+			self.MotionConnection = DisconnectConnection(self.MotionConnection)
+			return
+		end
+
+		local moveDistance = currentSpeed * deltaTime
+		local newPos = lastPosition + forward * moveDistance
+
+		-- Small bounce simulates ball rolling over grass
+		local speedAlpha = currentSpeed / rollSpeed
+		local bounce = math.sin(elapsed * bounceFrequency * math.pi * 2) * bounceHeight * speedAlpha
+		newPos = Vector3.new(newPos.X, groundY + math.max(bounce, 0), newPos.Z)
+
+		local spinDelta = moveDistance * 3.5
+		lastPosition = newPos
+		self:_moveBallCFrame(self:_buildSpinningCFrame(newPos, newPos + fallbackLook, fallbackLook, spinDelta))
 	end)
 
 	return motionToken
@@ -1674,6 +2130,11 @@ function MatchBallController:ContinueShotFromKeeper(startCFrame: CFrame, endPosi
 		DropDuration = options.DropDuration,
 		DropDistance = options.DropDistance,
 		DropBounceHeight = options.DropBounceHeight,
+		RollAfterDrop = options.RollAfterDrop,
+		RollDirection = options.RollDirection,
+		RollSpeed = options.RollSpeed,
+		RollDeceleration = options.RollDeceleration,
+		RollMaxDuration = options.RollMaxDuration,
 		ImpactAtFinish = options.ImpactAtFinish == true,
 		ImpactEmitCount = options.ImpactEmitCount,
 		ImpactLifetime = options.ImpactLifetime,

@@ -57,6 +57,10 @@ return table.freeze({
 			startColor = Color3.fromHex("ffe76a"),
 			endColor = Color3.fromHex("d88916"),
 		},
+		["Gold Legendary"] = {
+			startColor = Color3.fromHex("ffd447"),
+			endColor = Color3.fromHex("b48e1b"),
+		},
 		Mythical = {
 			startColor = Color3.fromHex("ff494c"),
 			endColor = Color3.fromHex("8d0909"),
@@ -72,7 +76,8 @@ return table.freeze({
 		Uncommon = Color3.fromHex("64ff39"),
 		Rare = Color3.fromHex("46a9ff"),
 		Epic = Color3.fromHex("c743ff"),
-		Legendary = Color3.fromHex("e4a327"),
+		Legendary = Color3.fromHex("ffd447"),
+		["Gold Legendary"] = Color3.fromHex("e4a327"),
 		Mythical = Color3.fromHex("e13b3e"),
 		Exclusive = Color3.fromHex("b9861b"),
 	},
@@ -87,8 +92,8 @@ return table.freeze({
 	["Uncommon"] = Color3.fromRGB(87, 220, 87),
 	["Rare"] = Color3.fromRGB(46, 102, 255),
 	["Epic"] = Color3.fromRGB(170, 0, 255),
-	["Legendary"] = Color3.fromRGB(228, 163, 39),
+	["Legendary"] = Color3.fromRGB(237, 201, 116),
 	["Mythical"] = Color3.fromRGB(227, 66, 44),
 	["Exclusive"] = Color3.fromRGB(185, 134, 27),
-	["Gold Legendary"] = Color3.fromRGB(237, 201, 116),
+	["Gold Legendary"] = Color3.fromRGB(228, 163, 39),
 })

@@ -7,8 +7,70 @@ AreaLightingPresenter.__index = AreaLightingPresenter
 
 local MATCH_BATTLE_LIGHTING_PRESET = "Area01"
 local MATCH_BATTLE_LIGHTING_PRESETS_BY_AREA = {
-	Area05 = "Area05Match",
+	-- Area05 = "Area05Match",
 }
+
+local mapEffectsCache = {}
+
+local function findBattleZone(): Instance?
+	local map = workspace:FindFirstChild("Map")
+	local battleZone = map and map:FindFirstChild("BattleZone")
+	if battleZone then
+		return battleZone
+	end
+
+	for i = 1, 5 do
+		local areaFolder = workspace:FindFirstChild("Area0" .. tostring(i))
+		local bz = areaFolder and areaFolder:FindFirstChild("BattleZone")
+		if bz then
+			return bz
+		end
+	end
+
+	return nil
+end
+
+local function applyMapEffectsDimming(dimmed: boolean)
+	if dimmed then
+		local battleZone = findBattleZone()
+		if not battleZone then return end
+
+		for _, descendant in ipairs(battleZone:GetDescendants()) do
+			if descendant:IsA("BasePart") and descendant.Material == Enum.Material.Neon then
+				if not mapEffectsCache[descendant] then
+					mapEffectsCache[descendant] = {
+						Type = "Neon",
+						Material = descendant.Material,
+						Color = descendant.Color,
+					}
+				end
+				descendant.Material = Enum.Material.SmoothPlastic
+			elseif descendant:IsA("Light") then
+				if not mapEffectsCache[descendant] then
+					mapEffectsCache[descendant] = {
+						Type = "Light",
+						Enabled = descendant.Enabled,
+					}
+				end
+				descendant.Enabled = false
+			end
+		end
+	else
+		for instance, original in pairs(mapEffectsCache) do
+			if instance and instance.Parent then
+				pcall(function()
+					if original.Type == "Neon" then
+						instance.Material = original.Material
+						instance.Color = original.Color
+					elseif original.Type == "Light" then
+						instance.Enabled = original.Enabled
+					end
+				end)
+			end
+		end
+		table.clear(mapEffectsCache)
+	end
+end
 
 function AreaLightingPresenter.new()
 	local self = setmetatable({}, AreaLightingPresenter)
@@ -63,6 +125,14 @@ function AreaLightingPresenter:Init()
 	MatchService.MatchSessionStarted:Connect(function(payload)
 		inMatchBattle = true
 		ApplyMatchBattleLighting(payload)
+
+		applyMapEffectsDimming(true)
+		task.delay(0.5, function()
+			applyMapEffectsDimming(true)
+		end)
+		task.delay(1.5, function()
+			applyMapEffectsDimming(true)
+		end)
 	end)
 
 	MatchService.MatchSessionEnded:Connect(function(reason)
@@ -71,16 +141,23 @@ function AreaLightingPresenter:Init()
 		end
 
 		inMatchBattle = false
+		applyMapEffectsDimming(false)
 		task.defer(RestoreCurrentAreaLighting)
 	end)
 
 	MatchService.ChampionCeremonyStarted:Connect(function(payload)
 		inMatchBattle = true
 		ApplyMatchBattleLighting(payload)
+
+		applyMapEffectsDimming(true)
+		task.delay(0.5, function()
+			applyMapEffectsDimming(true)
+		end)
 	end)
 
 	MatchService.ChampionCeremonyEnded:Connect(function()
 		inMatchBattle = false
+		applyMapEffectsDimming(false)
 		task.defer(RestoreCurrentAreaLighting)
 	end)
 

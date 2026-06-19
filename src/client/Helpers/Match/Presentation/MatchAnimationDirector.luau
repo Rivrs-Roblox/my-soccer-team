@@ -30,6 +30,7 @@ return function(MatchPresentationController, Context)
 	local BALL_TRAVEL = Constants.BALL_TRAVEL
 	local CUTSCENE_ACTOR_COLLISION_GROUP = Constants.CUTSCENE_ACTOR_COLLISION_GROUP
 	local DEFAULT_TIME_SCALE = Constants.DEFAULT_TIME_SCALE
+	local QTE_SLOWMO_ANIMATION_SPEED = Constants.QTE_SLOWMO_ANIMATION_SPEED or 0.1
 	local APPROACH_FORWARD_PUSH_DISTANCE = Constants.APPROACH_FORWARD_PUSH_DISTANCE
 	local APPROACH_MIN_FORWARD_DISTANCE = Constants.APPROACH_MIN_FORWARD_DISTANCE
 	local APPROACH_NEAR_TARGET_THRESHOLD = Constants.APPROACH_NEAR_TARGET_THRESHOLD
@@ -158,7 +159,7 @@ function MatchPresentationController:_playMotionAnimation(model, requestedName, 
 	return nil
 end
 
-function MatchPresentationController:_pauseRigAnimation(model)
+function MatchPresentationController:_pauseRigAnimation(model, speedOverride)
 	if not model then
 		return
 	end
@@ -168,10 +169,15 @@ function MatchPresentationController:_pauseRigAnimation(model)
 		return
 	end
 
+	local trackSpeed = tonumber(speedOverride)
+	if trackSpeed == nil then
+		trackSpeed = self.IsPreQteFrozen and QTE_SLOWMO_ANIMATION_SPEED or 0
+	end
+
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		-- Hold the current animation pose for QTE.
+		-- Keep the current track alive; speed 0 holds the pose, QTE can pass slowmo speed.
 		-- Do not Stop(0), because stopping resets many rigs back to idle/T-pose.
-		track:AdjustSpeed(0)
+		track:AdjustSpeed(trackSpeed)
 	end
 end
 

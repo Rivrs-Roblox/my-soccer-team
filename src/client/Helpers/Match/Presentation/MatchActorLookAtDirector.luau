@@ -54,9 +54,6 @@ return function(controller, context)
 	}
 
 	local function debugPrint(...)
-		if MatchActorLookConfig.Debug then
-			print("[MatchActorLookAt]", ...)
-		end
 	end
 
 	local function clamp(value: number, minValue: number, maxValue: number): number
@@ -826,11 +823,6 @@ return function(controller, context)
 			if refreshAccumulator >= 0.2 then
 				refreshAccumulator = 0
 				registerControlledActors()
-			end
-
-			if MatchActorLookConfig.Debug and not controller._matchActorLookFirstTargetLogged then
-				controller._matchActorLookFirstTargetLogged = true
-				debugPrint("first loop records=" .. tostring(#controller._matchActorLookRecords))
 			end
 
 			for index = #controller._matchActorLookRecords, 1, -1 do

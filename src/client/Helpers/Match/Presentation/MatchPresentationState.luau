@@ -15,11 +15,6 @@ function State.CreateControllerDefinition()
 		CutsceneCollisionRecords = {},
 		IntroVisualReadySessions = {},
 		LocalCharacterHideGuardConnection = nil,
-		LastExistingProxyDebugAt = 0,
-
-		DebugFlow = false,
-		DebugReturnAttendance = false,
-
 		IsApproachBusy = false,
 		IsPostActionBusy = false,
 
@@ -144,8 +139,6 @@ function State.Attach(MatchPresentationController, Context)
 	local FALLBACK_RUN_ANIMATION_ID = Constants.FALLBACK_RUN_ANIMATION_ID
 	local FALLBACK_IDLE_ANIMATION_ID = Constants.FALLBACK_IDLE_ANIMATION_ID
 	local MOTION_ANIMATION_CANDIDATES = Constants.MOTION_ANIMATION_CANDIDATES
-	local DEBUG_SPAWN_HANDOFF = Constants.DEBUG_SPAWN_HANDOFF == true
-
 	local GetRootPart = Utils.GetRootPart
 	local ApplyPivot = Utils.ApplyPivot
 	local ForceModelVisible = Utils.ForceModelVisible
@@ -163,35 +156,6 @@ function State.Attach(MatchPresentationController, Context)
 	local BuildStableOffset = Utils.BuildStableOffset
 	local GetFlatUnitFromLook = Utils.GetFlatUnitFromLook
 	local ClampTargetAhead = Utils.ClampTargetAhead
-
-	local function formatVector3(value)
-		if typeof(value) ~= "Vector3" then
-			return "nil"
-		end
-
-		return string.format("%.2f,%.2f,%.2f", value.X, value.Y, value.Z)
-	end
-
-	local function getModelDebug(model)
-		if not model or not model.Parent then
-			return "missing"
-		end
-
-		local root = GetRootPart(model)
-		if not root or not root:IsA("BasePart") then
-			return string.format("model=%s root=nil parent=%s", model.Name, model.Parent:GetFullName())
-		end
-
-		return string.format(
-			"model=%s root=(%s) anchored=%s ltm=%.2f trans=%.2f parent=%s",
-			model.Name,
-			formatVector3(root.Position),
-			tostring(root.Anchored),
-			root.LocalTransparencyModifier,
-			root.Transparency,
-			model.Parent:GetFullName()
-		)
-	end
 
 	local function buildPlayerProxySpawnRootCFrame(spawnPart, fallbackCFrame, proxyModel, serverRootCFrame)
 		if typeof(serverRootCFrame) == "CFrame" then
@@ -236,22 +200,6 @@ function State.Attach(MatchPresentationController, Context)
 				root.AssemblyAngularVelocity = Vector3.zero
 			end)
 		end
-	end
-
-	function MatchPresentationController:_debugSpawnHandoff(label, actorModel)
-		if not DEBUG_SPAWN_HANDOFF then
-			return
-		end
-
-		print(string.format(
-			"[SpawnHandoff][ClientPresentation] t=%.3f session=%s label=%s real={%s} proxy={%s} actor={%s}",
-			os.clock(),
-			tostring(self.CurrentSessionId or ""),
-			tostring(label or ""),
-			getModelDebug(LocalPlayer.Character),
-			getModelDebug(self.PlayerProxy),
-			getModelDebug(actorModel)
-		))
 	end
 
 	function MatchPresentationController:_setTimeScale(scale)
@@ -505,7 +453,7 @@ end
 				else
 					descendant.LocalTransparencyModifier = self.PlayerHiddenParts[descendant] or 0
 				end
-			elseif descendant:IsA("BillboardGui") or descendant:IsA("SurfaceGui") then
+			elseif descendant:IsA("BillboardGui") or descendant:IsA("SurfaceGui") or descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Beam") or descendant:IsA("Highlight") or descendant:IsA("Fire") or descendant:IsA("Smoke") or descendant:IsA("Sparkles") or descendant:IsA("PointLight") or descendant:IsA("SpotLight") or descendant:IsA("SurfaceLight") then
 				if hidden then
 					if self.PlayerHiddenGuiStates[descendant] == nil then
 						self.PlayerHiddenGuiStates[descendant] = descendant.Enabled
@@ -532,7 +480,6 @@ end
 		end
 
 		self:_setCharacterHidden(true)
-		self:_debugSpawnHandoff("hide-guard-start")
 		self.LocalCharacterHideGuardConnection = RunService.RenderStepped:Connect(function()
 			self:_setCharacterHidden(true)
 		end)
@@ -542,7 +489,6 @@ end
 		if self.LocalCharacterHideGuardConnection then
 			self.LocalCharacterHideGuardConnection:Disconnect()
 			self.LocalCharacterHideGuardConnection = nil
-			self:_debugSpawnHandoff("hide-guard-stop")
 		end
 	end
 
@@ -637,13 +583,6 @@ end
 			self:_sanitizePlayerProxyOverhead(self.PlayerProxy)
 			StabilizePlayerProxyPhysics(self.PlayerProxy)
 			ForceModelVisible(self.PlayerProxy)
-			if DEBUG_SPAWN_HANDOFF then
-				local now = os.clock()
-				if now - (self.LastExistingProxyDebugAt or 0) >= 0.75 then
-					self.LastExistingProxyDebugAt = now
-					self:_debugSpawnHandoff("ensure-proxy-existing-visible", self.PlayerProxy)
-				end
-			end
 			return self.PlayerProxy
 		end
 
@@ -707,7 +646,6 @@ end
 
 		self.PlayerProxy = clone
 		self:_startLocalCharacterHideGuard()
-		self:_debugSpawnHandoff("ensure-proxy-created-hidden-final", clone)
 
 		return clone
 	end
@@ -731,7 +669,6 @@ end
 		applyPlayerProxyRootCFrame(proxy, spawnRootCFrame)
 		StabilizePlayerProxyPhysics(proxy)
 		SetPlayerProxyHidden(proxy, true)
-		self:_debugSpawnHandoff("reset-proxy-spawn-hidden-final", proxy)
 		return true
 	end
 
@@ -943,16 +880,10 @@ end
 
 		if not self:_isCompanionSlot(slotNumber) then
 			applyPlayerProxyRootCFrame(actorModel, targetCFrame)
-			if DEBUG_SPAWN_HANDOFF and tonumber(slotNumber) == 1 and self.CurrentPresentationStepIndex == 0 then
-				self:_debugSpawnHandoff("apply-actor-root-cframe-slot1-before-step", actorModel)
-			end
 			return false
 		end
 
 		ApplyPivot(actorModel, targetCFrame)
-		if DEBUG_SPAWN_HANDOFF and tonumber(slotNumber) == 1 and self.CurrentPresentationStepIndex == 0 then
-			self:_debugSpawnHandoff("apply-actor-cframe-slot1-before-step", actorModel)
-		end
 		return false
 	end
 
@@ -991,23 +922,6 @@ end
 		end
 
 		return true
-	end
-
-	function MatchPresentationController:_debugFlow(payload, message)
-		if not self.DebugFlow then
-			return
-		end
-
-		local sessionId = payload and payload.SessionId or "?"
-		local stepIndex = payload and payload.StepIndex or "?"
-		local action = payload and payload.Action or "?"
-		print(string.format(
-			"[MatchPresentationFlow] session=%s step=%s action=%s | %s",
-			tostring(sessionId),
-			tostring(stepIndex),
-			tostring(action),
-			tostring(message)
-		))
 	end
 
 	function MatchPresentationController:_waitForSessionSeconds(sessionId, duration)

@@ -15,6 +15,27 @@ local Sound = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("S
 
 local MatchAudioHelper = {}
 
+local function getScaledVolume(sound, baseVolume)
+	if not sound or not sound.soundData then
+		return baseVolume
+	end
+
+	local category = sound.soundData.Category
+	local multiplier = 1.0
+
+	if Sound.Categories and Sound.GlobalVolume then
+		if category == Sound.Categories.UI then
+			multiplier = (Sound.GlobalVolume.UI or 100) / 100
+		elseif category == Sound.Categories.MUSIC then
+			multiplier = (Sound.GlobalVolume.MUSIC or 100) / 100
+		elseif category == Sound.Categories.MISC then
+			multiplier = (Sound.GlobalVolume.MISC or 100) / 100
+		end
+	end
+
+	return baseVolume * multiplier
+end
+
 function MatchAudioHelper.PlaySoundId(soundIdOrKey: string?, options)
 	options = options or {}
 
@@ -62,7 +83,8 @@ function MatchAudioHelper.PlaySoundId(soundIdOrKey: string?, options)
 		
 		if options.Volume then
 			pcall(function()
-				sound:setVolume(options.Volume)
+				local scaledVolume = getScaledVolume(sound, options.Volume)
+				sound:setVolume(scaledVolume)
 			end)
 		end
 	end

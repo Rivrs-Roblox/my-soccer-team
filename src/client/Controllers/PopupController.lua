@@ -31,7 +31,7 @@ local PopupController = Knit.CreateController({
 
 local Positions = {
 	Wins = {
-		Position = UDim2.fromScale(0.295, 0.055),
+		Position = UDim2.fromScale(0.245, 0.055),
 		Size = UDim2.fromScale(0.036, 0.14),
 	},
 	Money2 = {
@@ -39,15 +39,19 @@ local Positions = {
 		Size = UDim2.fromScale(0.039, 0.13),
 	},
 	Shoot = {
-		Position = UDim2.fromScale(0.605, 0.05),
+		Position = UDim2.fromScale(0.555, 0.05),
 		Size = UDim2.fromScale(0.039, 0.13),
 	},
 	Pass = {
-		Position = UDim2.fromScale(0.495, 0.05),
+		Position = UDim2.fromScale(0.445, 0.05),
 		Size = UDim2.fromScale(0.039, 0.13),
 	},
 	Dribble = {
-		Position = UDim2.fromScale(0.715, 0.05),
+		Position = UDim2.fromScale(0.665, 0.05),
+		Size = UDim2.fromScale(0.039, 0.13),
+	},
+	Stamina = {
+		Position = UDim2.fromScale(0.775, 0.05),
 		Size = UDim2.fromScale(0.039, 0.13),
 	},
 }
@@ -301,6 +305,7 @@ function PopupController:KnitStart()
 			Size = Positions.Money2.Size,
 		}).Completed
 			:Connect(function()
+				UIController:TweenTopDisplaySize("Money2")
 				r.Frame:Destroy()
 			end)
 	end)
@@ -326,6 +331,7 @@ function PopupController:KnitStart()
 			Size = Positions.Wins.Size,
 		}).Completed
 			:Connect(function()
+				UIController:TweenTopDisplaySize("Wins")
 				r.Frame:Destroy()
 			end)
 	end)
@@ -353,6 +359,7 @@ function PopupController:KnitStart()
 			Size = Positions[statType].Size,
 		}).Completed
 			:Connect(function()
+				UIController:TweenTopDisplaySize(statType)
 				r.Frame:Destroy()
 			end)
 	end)

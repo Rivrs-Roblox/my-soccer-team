@@ -117,7 +117,7 @@ function PassTrainingRuntime.GetCycleData(totalCount: number, visualState)
 	if not zone then
 		return nil
 	end
-
+	
 	local layout = PassTrainingRuntime.GetLayout(zone)
 	if not layout then
 		return nil
@@ -125,7 +125,7 @@ function PassTrainingRuntime.GetCycleData(totalCount: number, visualState)
 
 	local now = Workspace:GetServerTimeNow()
 	local startTime = visualState.ServerStartTime or now
-	local elapsed = math.max(0, now - startTime)
+	local elapsed = math.max(0, now - startTime) * (visualState.Level or 1)
 
 	local s = Settings.Pass
 	local startDelay = s.StartDelay or 0

@@ -53,23 +53,20 @@ function RebirthService:Rebirth(player: Player)
 		return warn("[REBIRTH SERVICE] Player has no data: " .. player.Name)
 	end
 
-	local nextRebirth = self.RebirthTable[data.Rebirth + 1]
+	local req = self.RebirthTable[data.Rebirth + 1]
 
-	if nextRebirth == nil then
+	if req == nil then
 		if data.Rebirth + 1 < 2000 then
 			local sizeOfArray = #self.RebirthTable
-
-			if data.Rebirth + 1 < #self.RebirthTable then
-				nextRebirth = self.RebirthTable[data.Rebirth + 1]
-			else
-				nextRebirth = self.RebirthTable[sizeOfArray] * math.pow(1.3, ((data.Rebirth + 1) - sizeOfArray))
-			end
+			local last = self.RebirthTable[sizeOfArray]
+			local mult = math.pow(1.3, (data.Rebirth + 1) - sizeOfArray)
+			req = { A = last.A * mult, B = last.B * mult, C = last.C * mult }
 		else
 			return { text = self.Template.Messages.Notifications.No_More_Rebirth, type = "ERROR" }
 		end
 	end
 
-	if data.Stats.Shoot < nextRebirth or data.Stats.Pass < nextRebirth or data.Stats.Dribble < nextRebirth then
+	if data.Stats.Shoot < req.A or data.Stats.Pass < req.B or data.Stats.Dribble < req.C then
 		return { text = self.Template.Messages.Notifications.Not_Enough_Money("Shoot, Pass, and Dribble stats"), type = "ERROR" }
 	end
 
@@ -92,17 +89,19 @@ function RebirthService:RebirthWithoutMoney(player: Player)
 		return warn("[REBIRTH SERVICE] Player has no data: " .. player.Name)
 	end
 
-	local nextRebirth = self.RebirthTable[data.Rebirth + 1]
-	if nextRebirth == nil then
+	local req = self.RebirthTable[data.Rebirth + 1]
+	if req == nil then
 		if data.Rebirth + 1 < 2000 then
 			local sizeOfArray = #self.RebirthTable
-			nextRebirth = self.RebirthTable[sizeOfArray] * math.pow(1.3, (data.Rebirth + 1 - sizeOfArray))
+			local last = self.RebirthTable[sizeOfArray]
+			local mult = math.pow(1.3, data.Rebirth + 1 - sizeOfArray)
+			req = { A = last.A * mult, B = last.B * mult, C = last.C * mult }
 		else
 			return { text = self.Template.Messages.Notifications.No_More_Rebirth, type = "ERROR" }
 		end
 	end
 
-	if data.Stats.Shoot < nextRebirth or data.Stats.Pass < nextRebirth or data.Stats.Dribble < nextRebirth then
+	if data.Stats.Shoot < req.A or data.Stats.Pass < req.B or data.Stats.Dribble < req.C then
 		return { text = self.Template.Messages.Notifications.Not_Enough_Money("Shoot, Pass, and Dribble stats"), type = "ERROR" }
 	end
 

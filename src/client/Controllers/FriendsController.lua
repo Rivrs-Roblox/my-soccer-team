@@ -13,28 +13,62 @@ local player = Players.LocalPlayer
 
 local Store = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Store)
 local FriendsActions = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Actions.FriendsActions)
+local Template = require(ReplicatedStorage.Shared.Data.Template)
 
 local FriendsService
-
 local NotificationController
 
 -- FriendsController
 local FriendsController = Knit.CreateController({
 	Name = "FriendsController",
+	InviteDebounce = {},
+	BuyDebounce = {},
 })
 
 --|| Local Functions ||--
 
 --|| Functions ||--
 function FriendsController:BuyReward(rewardId)
+	local now = os.clock()
+	local lastBuy = self.BuyDebounce[rewardId] or 0
+	if now - lastBuy < 1.5 then
+		return
+	end
+	self.BuyDebounce[rewardId] = now
+
+	-- Client-side validation for stars
+	local state = Store:getState()
+	local stars = 0
+	if state and state.FriendsReducer then
+		stars = state.FriendsReducer.Stars or 0
+	end
+
+	local reward = Template.Friends.Rewards[rewardId]
+	if not reward then
+		self.BuyDebounce[rewardId] = nil
+		return
+	end
+
+	if stars < reward.Price then
+		NotificationController:Notify({
+			tag = `StarNotEnough_{rewardId}`,
+			text = "Not enough stars!",
+			type = "ERROR",
+		})
+		self.BuyDebounce[rewardId] = nil
+		return
+	end
+
 	local _, result = FriendsService:BuyReward(rewardId):await()
 
 	if result then
 		NotificationController:Notify({
+			tag = `StarNotEnough_{rewardId}`,
 			text = result.text,
 			type = result.type,
 		})
 	end
+	self.BuyDebounce[rewardId] = nil
 end
 
 function FriendsController:SetFriendList()
@@ -66,6 +100,13 @@ function FriendsController:SetFriendList()
 end
 
 function FriendsController:InviteFriend(friendId)
+	local now = os.clock()
+	local lastInvite = self.InviteDebounce[friendId] or 0
+	if now - lastInvite < 3 then
+		return
+	end
+	self.InviteDebounce[friendId] = now
+
 	local success, canSend = pcall(function()
 		return SocialService:CanSendGameInviteAsync(Players.LocalPlayer)
 	end)
@@ -74,18 +115,22 @@ function FriendsController:InviteFriend(friendId)
 		local inviteOptions = Instance.new("ExperienceInviteOptions")
 		inviteOptions.InviteUser = friendId
 
+		task.wait(1) -- Workaround: beri delay agar invite prompt stabil
+
 		local success, errorMessage = pcall(function()
 			SocialService:PromptGameInvite(Players.LocalPlayer, inviteOptions)
 		end)
 
 		if not success then
 			NotificationController:Notify({
+				tag = `InviteError_{friendId}`,
 				text = "Failed to send invite: " .. errorMessage,
 				type = "ERROR",
 			})
 		end
 	else
 		NotificationController:Notify({
+			tag = `InviteError_{friendId}`,
 			text = "You cannot send game invites at this time.",
 			type = "ERROR",
 		})
@@ -98,6 +143,16 @@ function FriendsController:KnitStart()
 	NotificationController = Knit.GetController("NotificationController")
 
 	self:SetFriendList()
+
+	-- Track invite result dari Roblox prompt
+	SocialService.GameInvitePromptClosed:Connect(function(player, recipientIds)
+		if recipientIds and #recipientIds > 0 then
+			NotificationController:Notify({
+				text = "Invite sent successfully!",
+				type = "SUCCESS",
+			})
+		end
+	end)
 
 	FriendsService.RewardGiven:Connect(function(invitesTable)
 		NotificationController:Notify({

@@ -564,6 +564,19 @@ function MatchBattleCameraController:PauseQteCamera()
 	self:_setExternalCameraLocked(true)
 end
 
+function MatchBattleCameraController:StartQteSoftFollow()
+	self.QteCameraPaused = false
+	self.QteSoftFollowActive = true
+
+	self:_setExternalCameraLocked(false)
+
+	if not self.ActiveSessionId then
+		return
+	end
+
+	self:_startBallTracking()
+end
+
 function MatchBattleCameraController:ResumeQteCamera()
 	self.QteCameraPaused = false
 	self.QteSoftFollowActive = false

@@ -25,6 +25,7 @@ local DEFAULT_STATS = {
 	Shoot = 0,
 	Pass = 0,
 	Dribble = 0,
+	Stamina = 100,
 }
 
 function PlayerStatsService:_normalizeAreaId(areaId: string?): string?
@@ -57,7 +58,6 @@ end
 function PlayerStatsService:GetStats(player: Player)
 	local playerData = DataService:GetData(player)
 	if playerData and playerData.Stats then
-		print("[PlayerStatsService] Returning stats for", player.Name, playerData.Stats)
 		return playerData.Stats
 	end
 
@@ -65,25 +65,67 @@ function PlayerStatsService:GetStats(player: Player)
 	return table.clone(DEFAULT_STATS)
 end
 
-function PlayerStatsService:GetRewardPerTick(areaId: string, statType: string): number?
+function PlayerStatsService:GetRewardPerTick(areaId: string, statType: string, level: number?): number?
 	local normalizedAreaId = self:_normalizeAreaId(areaId)
-	local areaData = normalizedAreaId and self.Template.Areas[normalizedAreaId]
-	local trainingData = areaData and areaData.Training
+	local trainingData = normalizedAreaId and self.Template.Training[normalizedAreaId]
 	local statData = trainingData and trainingData[statType]
+	local levelData = statData and statData[level or 1]
 
-	if not statData then
+	if not levelData then
 		warn(
 			string.format(
-				"[PlayerStatsService] Missing reward config for raw area '%s', normalized area '%s', stat '%s'",
+				"[PlayerStatsService] Missing reward config for raw area '%s', normalized area '%s', stat '%s', level '%s'",
 				tostring(areaId),
 				tostring(normalizedAreaId),
-				tostring(statType)
+				tostring(statType),
+				tostring(level)
 			)
 		)
 		return nil
 	end
 
-	return statData.RewardPerTick
+	return levelData.RewardPerTick
+end
+
+function PlayerStatsService:GetStaminaCostPerTick(playerOrAreaId, areaIdOrStatType: string, statTypeOrLevel, levelOrNil: number?): number?
+	local player, areaId, statType, level
+
+	if typeof(playerOrAreaId) == "Instance" and playerOrAreaId:IsA("Player") then
+		player = playerOrAreaId
+		areaId = areaIdOrStatType
+		statType = statTypeOrLevel
+		level = levelOrNil
+	else
+		areaId = playerOrAreaId
+		statType = areaIdOrStatType
+		level = statTypeOrLevel
+	end
+
+	local normalizedAreaId = self:_normalizeAreaId(areaId)
+	local trainingData = normalizedAreaId and self.Template.Training[normalizedAreaId]
+	local statData = trainingData and trainingData[statType]
+	local levelData = statData and statData[level or 1]
+
+	if not levelData then
+		return nil
+	end
+
+	local cost = levelData.StaminaCostPerTick
+
+	if player then
+		local playerData = DataService:GetData(player)
+		if playerData and playerData.Inventory and playerData.Inventory.ActiveBoosts then
+			for _, item in pairs(playerData.Inventory.ActiveBoosts) do
+				local itemName = (typeof(item) == "table" and item.Name) or item
+				if itemName == "x2_Endurance_Boost" then
+					cost = math.max(0, cost / 2)
+					break
+				end
+			end
+		end
+	end
+
+	return cost
 end
 
 function PlayerStatsService:GetTotalMultiplier(player: Player, statType: string)
@@ -105,7 +147,7 @@ function PlayerStatsService:GetTotalMultiplier(player: Player, statType: string)
 			coachMultiplier = coachData.Multiplier
 		end
 	end
-	
+
 	multiplier *= rebirthMultiplier * coachMultiplier
 
 	-- Gamepasses
@@ -114,9 +156,15 @@ function PlayerStatsService:GetTotalMultiplier(player: Player, statType: string)
 	end
 
 	local gamepassName = nil
-	if statType == "Shoot" then gamepassName = "x2 Shoot"
-	elseif statType == "Pass" then gamepassName = "x2 Pass"
-	elseif statType == "Dribble" then gamepassName = "x2 Dribble" end
+	if statType == "Shoot" then
+		gamepassName = "x2 Shoot"
+	elseif statType == "Pass" then
+		gamepassName = "x2 Pass"
+	elseif statType == "Dribble" then
+		gamepassName = "x2 Dribble"
+	elseif statType == "Stamina" then
+		gamepassName = "x2 Stamina"
+	end
 
 	if gamepassName and FindValue(playerData.Gamepasses, gamepassName) then
 		multiplier *= 2
@@ -137,8 +185,7 @@ function PlayerStatsService:GetTotalMultiplier(player: Player, statType: string)
 
 		for _, item in pairs(playerData.Inventory.ActiveBoosts or {}) do
 			local itemName = (typeof(item) == "table" and item.Name) or item
-			local itemData = Boosts[itemName]
-			if itemData and statType == itemData.Type then
+			if itemName == "x2_" .. statType .. "_Boost" then
 				multiplier *= 2
 			end
 		end
@@ -147,14 +194,14 @@ function PlayerStatsService:GetTotalMultiplier(player: Player, statType: string)
 	return multiplier
 end
 
-function PlayerStatsService:AddStat(player: Player, statType: string, areaId: string)
+function PlayerStatsService:AddStat(player: Player, statType: string, areaId: string, level: number?)
 	local playerData = DataService:GetData(player)
 	if not playerData or not playerData.Stats or playerData.Stats[statType] == nil then
 		warn("[PlayerStatsService] Invalid player data or stat for", player.Name, statType)
 		return
 	end
 
-	local rewardPerTick = self:GetRewardPerTick(areaId, statType)
+	local rewardPerTick = self:GetRewardPerTick(areaId, statType, level)
 	if not rewardPerTick then
 		warn(
 			string.format(

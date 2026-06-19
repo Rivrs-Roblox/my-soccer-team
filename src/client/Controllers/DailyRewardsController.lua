@@ -17,6 +17,7 @@ local DailyRewardsService = nil
 local NotificationController = nil
 local DataCacheController = nil
 local StoreController = nil
+local UIController = nil
 
 -- DailyRewardsController
 local DailyRewardsController = Knit.CreateController({
@@ -26,9 +27,20 @@ local DailyRewardsController = Knit.CreateController({
 
 --|| Functions ||--
 function DailyRewardsController:ClaimReward(id: number)
+    local actionKey = "ClaimDailyReward_" .. tostring(id)
+    if not UIController:StartAction(actionKey) then
+        return
+    end
+
     local promise, res = DailyRewardsService:ClaimReward(id):await()
-    if promise == false then return warn("[DAILY REWARDS CONTROLLER] An internal error occurred while claming reward.") end
-    if res ~= nil and res ~= {} then NotificationController:Notify(res) end
+    UIController:EndAction(actionKey)
+
+    if promise == false then 
+        return warn("[DAILY REWARDS CONTROLLER] An internal error occurred while claming reward.") 
+    end
+    if res ~= nil and res ~= {} then 
+        NotificationController:Notify(res) 
+    end
 end
 
 function DailyRewardsController:Skip()
@@ -46,6 +58,7 @@ function DailyRewardsController:KnitInit()
     NotificationController = Knit.GetController("NotificationController")
     DataCacheController = Knit.GetController("DataCacheController")
     StoreController = Knit.GetController("StoreController")
+    UIController = Knit.GetController("UIController")
 
     self.Template = DataCacheController:GetFile("Template")
 

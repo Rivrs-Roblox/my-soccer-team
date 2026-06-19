@@ -22,6 +22,7 @@ local TeleportService = nil
 local DataCacheController = nil
 local NotificationController = nil
 local MatchController = nil
+local TradeController = nil
 
 -- Store
 local Store = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Store)
@@ -31,10 +32,10 @@ local NotificationActions = require(StarterPlayer.StarterPlayerScripts.Client.Ro
 -- Helpers
 local FormatNumber = require(ReplicatedStorage.Shared.Helpers.Numbers.FormatNumber)
 local UIJuice = require(StarterPlayer.StarterPlayerScripts.Client.Helpers.UIJuice)
+local TweenBlur = require(ReplicatedStorage.Shared.Helpers.TweenBlur)
 
 ---Cache
-local TopFrameSizeInit = false
-local TopFrameSize = nil
+local topFrameSizes = {}
 
 local BottomFrameSizeInit = false
 local BottomFrameSize = nil
@@ -52,12 +53,15 @@ local PANEL_CLOSE_OPTIONS = {
 	Duration = 0.1,
 	HideOnComplete = true,
 }
+local ANIMATIONS_ENABLED = false
 
 -- UIController
 local UIController = Knit.CreateController({
 	Name = "UIController",
 	Template = {},
 	Images = {},
+	_uiBlockedForMatch = false,
+	_activeActions = {},
 	ActiveTweens = {
 		impactTweens = {},
 		displaySizeTweens = {},
@@ -145,10 +149,18 @@ function UIController:_resetCurrentFrame(resetSections: boolean?)
 
 	if resetSections ~= false then
 		Store:dispatch(UIActions.resetCurrentStoreSectionUI())
+		Store:dispatch(UIActions.resetCurrentSeasonPassUI())
+		Store:dispatch(UIActions.resetCurrentPacksUI())
+		Store:dispatch(UIActions.resetCurrentCustomizeUI())
+		Store:dispatch(UIActions.resetCurrentAccessoriesUI())
 	end
 end
 
 function UIController:_playFrameOpen(frameName: string)
+	if not ANIMATIONS_ENABLED then
+		return
+	end
+
 	local token = self:_nextPanelAnimationToken()
 
 	task.defer(function()
@@ -177,6 +189,11 @@ function UIController:_playCurrentFrameClose(options)
 		end
 
 		self:_resetCurrentFrame(options.ResetSections)
+	end
+
+	if not ANIMATIONS_ENABLED then
+		finishClose()
+		return
 	end
 
 	if IsEmptyFrameName(frameName) then
@@ -238,6 +255,14 @@ function UIController:RemoveHUD(params: {})
 end
 
 function UIController:ShowHUD()
+	if self._uiBlockedForMatch == true then
+		return
+	end
+
+	if self:IsUiBlockedForTrade() then
+		return
+	end
+
 	local Info = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut, 0, false, 0)
 
 	task.delay(0.2, function()
@@ -308,6 +333,12 @@ function UIController:ShowBottomFrame()
 end
 
 function UIController:HideFrame()
+	if self:IsUiBlockedForMatch() then
+		self:_nextPanelAnimationToken()
+		self:_resetCurrentFrame(true)
+		return
+	end
+
 	if not MatchController:IsPlayingMatch() then
 		self:ShowHUD()
 	end
@@ -315,12 +346,67 @@ function UIController:HideFrame()
 	self:_playCurrentFrameClose({
 		ResetSections = true,
 	})
+	TweenBlur(0, 0.2)
 end
 
 function UIController:JustHideFrame()
+	if self:IsUiBlockedForMatch() then
+		self:_nextPanelAnimationToken()
+		self:_resetCurrentFrame(true)
+		return
+	end
+
 	self:_playCurrentFrameClose({
 		ResetSections = true,
 	})
+	TweenBlur(0, 0.2)
+end
+
+function UIController:SetMatchUiBlocked(isBlocked: boolean)
+	self._uiBlockedForMatch = isBlocked == true
+end
+
+function UIController:IsUiBlockedForMatch(): boolean
+	if self._uiBlockedForMatch == true then
+		return true
+	end
+
+	if MatchController and MatchController.IsPlayingMatch then
+		local ok, isPlaying = pcall(function()
+			return MatchController:IsPlayingMatch()
+		end)
+		return ok and isPlaying == true
+	end
+
+	return false
+end
+
+function UIController:IsUiBlockedForTrade(): boolean
+	if not TradeController then
+		pcall(function()
+			TradeController = Knit.GetController("TradeController")
+		end)
+	end
+
+	return TradeController ~= nil and TradeController.IsTrading == true
+end
+
+function UIController:IsPanelOpenBlocked(): boolean
+	local monetizationController = nil
+	pcall(function()
+		monetizationController = Knit.GetController("MonetizationController")
+	end)
+	local isPurchasePromptActive = monetizationController and monetizationController.IsPurchasePromptActive == true
+
+	return self:IsUiBlockedForMatch() or self:IsUiBlockedForTrade() or isPurchasePromptActive
+end
+
+function UIController:CloseAllPanelsForMatch()
+	self:SetMatchUiBlocked(true)
+	self:_nextPanelAnimationToken()
+	self:_resetCurrentFrame(true)
+	self:RemoveHUD({ ignoreTopFrame = false })
+	TweenBlur(0, 0.2)
 end
 
 function UIController:ShowFrame(params: {})
@@ -329,12 +415,14 @@ function UIController:ShowFrame(params: {})
 		return print("Frame", params.frame, "is NULL")
 	end
 
-	if MatchController:IsPlayingMatch() then
+	if self:IsPanelOpenBlocked() then
 		return
 	end
 
 	Store:dispatch(UIActions.setCurrentUI(params.frame))
 	self:_playFrameOpen(params.frame)
+	self:RemoveHUD({ ignoreTopFrame = true })
+	TweenBlur(15, 0.2)
 
 	if params.frame == "Store" then
 		Store:dispatch(NotificationActions.setNotification("Store", nil))
@@ -362,10 +450,21 @@ function UIController:ShowNewClickUnlock()
 	end)
 end
 
-function UIController:InitTopFrameSize(size)
-	if not TopFrameSizeInit then
-		TopFrameSize = size
-		TopFrameSizeInit = true
+function UIController:StartAction(actionKey: string): boolean
+	if self._activeActions[actionKey] then
+		return false
+	end
+	self._activeActions[actionKey] = true
+	return true
+end
+
+function UIController:EndAction(actionKey: string)
+	self._activeActions[actionKey] = nil
+end
+
+function UIController:InitTopFrameSize(frameName, size)
+	if not topFrameSizes[frameName] then
+		topFrameSizes[frameName] = size
 	end
 end
 
@@ -393,7 +492,7 @@ end
 function UIController:MakeImpactRectangleClickButton()
 	-- Cancel and destroy any existing impact tweens
 	for _, tween in pairs(self.ActiveTweens.impactTweens) do
-		if tween.Instance then
+		if tween then
 			tween:Cancel()
 			tween:Destroy()
 		end
@@ -433,7 +532,7 @@ end
 function UIController:TweenTopDisplaySize(currency)
 	-- Cancel and destroy any existing display size tweens
 	for _, tween in pairs(self.ActiveTweens.displaySizeTweens) do
-		if tween.Instance then
+		if tween then
 			tween:Cancel()
 			tween:Destroy()
 		end
@@ -442,17 +541,34 @@ function UIController:TweenTopDisplaySize(currency)
 	table.clear(self.ActiveTweens.displaySizeTweens)
 
 	local TopFrame = Players.LocalPlayer.PlayerGui:WaitForChild("GameScreenGui").HUD.TopFrame
-	local FrameToTween = TopFrame:FindFirstChild(currency)
+	
+	local frameName = currency
+	if currency == "Shoot" then
+		frameName = "Shooting"
+	elseif currency == "Pass" then
+		frameName = "Passing"
+	elseif currency == "Dribble" then
+		frameName = "Dribbling"
+	elseif currency == "Rebirth" then
+		frameName = "Rebirths"
+	end
 
-	self:InitTopFrameSize(FrameToTween.Size)
+	local FrameToTween = TopFrame:FindFirstChild(frameName)
+	if not FrameToTween then
+		warn("[UIController] Top HUD frame not found for currency:", currency, "resolved as:", frameName)
+		return
+	end
+
+	self:InitTopFrameSize(frameName, FrameToTween.Size)
+	local originalSize = topFrameSizes[frameName]
 
 	local TweenInf2 = TweenInfo.new(0.14, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 0, false, 0)
 	local TweenInf1 = TweenInfo.new(0.05, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 0, false, 0)
 
 	local TweenSizeUp =
-		TweenService:Create(FrameToTween, TweenInf1, { Size = TopFrameSize + UDim2.fromScale(0.15, 0.15) })
+		TweenService:Create(FrameToTween, TweenInf1, { Size = originalSize + UDim2.fromScale(0.15, 0.15) })
 
-	local TweenSizeDown = TweenService:Create(FrameToTween, TweenInf2, { Size = TopFrameSize })
+	local TweenSizeDown = TweenService:Create(FrameToTween, TweenInf2, { Size = originalSize })
 
 	self.ActiveTweens.displaySizeTweens[1] = TweenSizeUp
 	self.ActiveTweens.displaySizeTweens[2] = TweenSizeDown
@@ -556,7 +672,7 @@ function UIController:KnitInit()
 
 			if Store:getState().StarterPacksReducer.BoughtStarterPacks < 1 then
 				UIController:ShowFrame({ frame = FramesConstants.StarterPack })
-				self.ShowHUD()
+				self:ShowHUD()
 			end
 		end)
 	end)
@@ -566,7 +682,7 @@ function UIController:KnitInit()
 			task.wait()
 		until isUIShown
 		UIController:ShowFrame({ frame = FramesConstants.StarterPack })
-		self.ShowHUD()
+		self:ShowHUD()
 	end)
 
 	task.delay(20 * 60, function()

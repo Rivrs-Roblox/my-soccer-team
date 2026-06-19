@@ -15,6 +15,7 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 local DataService = nil
 local DataCacheService = nil
 local SoccerCharactersService = nil
+local MatchService = nil
 
 -- TradeService
 local TradeService = Knit.CreateService({
@@ -85,6 +86,61 @@ function TradeService:_hasBeenRequested(player: Player)
 	end
 
 	return false
+end
+
+function TradeService:_isPlayerMatchBusy(player: Player): boolean
+	if not player then
+		return false
+	end
+
+	if not MatchService then
+		return false
+	end
+
+	if MatchService.IsPlayerInMatch and MatchService:IsPlayerInMatch(player) then
+		return true
+	end
+
+	if MatchService.IsPlayerTransitioning and MatchService:IsPlayerTransitioning(player) then
+		return true
+	end
+
+	return false
+end
+
+function TradeService:_clearRequestForPlayer(player: Player)
+	local outgoingReceiver = self.Requests[player]
+	if outgoingReceiver then
+		self.Requests[player] = nil
+		self.Client.RequestDeclined:Fire(player, { text = "Trade canceled.", type = "ERROR" })
+		self.Client.RequestDeclined:Fire(outgoingReceiver, { text = "Trade canceled.", type = "ERROR" })
+	end
+
+	local incomingRequest = self:_hasBeenRequested(player)
+	if incomingRequest ~= false then
+		self.Requests[incomingRequest.s] = nil
+		self.Client.RequestDeclined:Fire(incomingRequest.s, { text = "Trade canceled.", type = "ERROR" })
+		self.Client.RequestDeclined:Fire(incomingRequest.r, { text = "Trade canceled.", type = "ERROR" })
+	end
+end
+
+function TradeService:CancelPlayerActivityForMatch(player: Player)
+	self:_clearRequestForPlayer(player)
+
+	local otherPlayer = self.Trades[player]
+	if otherPlayer then
+		self.Client.TradeCanceled:Fire(player)
+		self.Client.TradeCanceled:Fire(otherPlayer)
+
+		self.PlayersSoccerCharacters[player] = nil
+		self.PlayersSoccerCharacters[otherPlayer] = nil
+		self.Trades[otherPlayer] = nil
+		self.Trades[player] = nil
+		self.Readys[player] = nil
+		self.Readys[otherPlayer] = nil
+		self.Proceeding[player] = nil
+		self.Proceeding[otherPlayer] = nil
+	end
 end
 
 ----------------------------
@@ -251,6 +307,10 @@ end
 -------------------------------
 
 function TradeService:Request(player: Player, receiver: Player)
+	if self:_isPlayerMatchBusy(player) or self:_isPlayerMatchBusy(receiver) then
+		return { text = "Cannot trade during a match.", type = "ERROR" }
+	end
+
 	if player == receiver then
 		return { text = self.Template.Messages.Notifications.Cant_Trade_Yourself, type = "ERROR" }
 	end
@@ -299,6 +359,12 @@ function TradeService:AcceptRequest(player: Player)
 	local request = self:_hasBeenRequested(player)
 	if request == false then
 		return { text = self.Template.Messages.Notifications.No_Request, type = "ERROR" }
+	end
+	if self:_isPlayerMatchBusy(player) or self:_isPlayerMatchBusy(request.s) then
+		self.Requests[request.s] = nil
+		self.Client.RequestDeclined:Fire(request.s, { text = "Trade canceled.", type = "ERROR" })
+		self.Client.RequestDeclined:Fire(player, { text = "Trade canceled.", type = "ERROR" })
+		return { text = "Cannot trade during a match.", type = "ERROR" }
 	end
 	if self.Trades[player] ~= nil then
 		return { text = self.Template.Messages.Notifications.Already_Trading, type = "ERROR" }
@@ -354,12 +420,7 @@ function TradeService:KnitInit()
 	self.SoccerCharacters = self.Template.SoccerCharacters
 
 	Players.PlayerRemoving:Connect(function(player: Player)
-		local request = self:_hasBeenRequested(player)
-		if request == false then
-			return
-		end
-
-		self.Requests[request.s] = nil
+		self:_clearRequestForPlayer(player)
 
 		if self.Trades[player] ~= nil then
 			self.Client.TradeCanceled:Fire(self.Trades[player])
@@ -375,6 +436,15 @@ function TradeService:KnitInit()
 	end)
 
 	print("[TRADE SERVICE] Service loaded successfully.")
+end
+
+function TradeService:KnitStart()
+	local ok, service = pcall(function()
+		return Knit.GetService("MatchService")
+	end)
+	if ok then
+		MatchService = service
+	end
 end
 
 return TradeService

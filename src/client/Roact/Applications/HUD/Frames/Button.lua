@@ -1,9 +1,14 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Roact = require(ReplicatedStorage.Packages.roact)
+local RoactHooks = require(ReplicatedStorage.Packages.hooks)
+local RoactSpring = require(ReplicatedStorage.Packages.RoactSpring)
 local Sound = require(ReplicatedStorage.Packages.Sound)
 
-return function(params: table)
+local Helpers = ReplicatedStorage.Shared.Helpers
+local Size = require(Helpers.Size)
+
+local function Button(params: table, hooks)
 	setmetatable(params, {
 		__index = {
 			id = 0 :: number,
@@ -14,6 +19,13 @@ return function(params: table)
 			order = 0 :: number,
 		},
 	})
+
+	local styles, api = RoactSpring.useSpring(hooks, function()
+		return {
+			sizeAlpha = 1,
+			rotation2 = 0,
+		}
+	end)
 
 	return Roact.createElement("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -29,15 +41,31 @@ return function(params: table)
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			BorderColor3 = Color3.fromHex("000000"),
-			Size = UDim2.fromScale(1, 1),
+			Size = Size(styles, { X = 1, Y = 1 }),
 			BorderSizePixel = 0,
 			BackgroundColor3 = Color3.fromHex("ffffff"),
 
-			[Roact.Event.MouseButton1Down] = function()
+			[Roact.Event.MouseButton1Click] = function()
 				Sound:PlaySound("UI_Click")
 				if params.onClick then
 					params.onClick()
 				end
+			end,
+
+			[Roact.Event.MouseEnter] = function()
+				api.start({ sizeAlpha = 1.05, rotation2 = 35, config = { mass = 1, tension = 1000, friction = 50 } })
+			end,
+
+			[Roact.Event.MouseLeave] = function()
+				api.start({ sizeAlpha = 1, rotation2 = 0, config = { mass = 1, tension = 1000, friction = 50 } })
+			end,
+
+			[Roact.Event.MouseButton1Down] = function()
+				api.start({ sizeAlpha = 0.95 })
+			end,
+
+			[Roact.Event.MouseButton1Up] = function()
+				api.start({ sizeAlpha = 1 })
 			end,
 		}, {
 			ButtonText = Roact.createElement("TextLabel", {
@@ -102,6 +130,7 @@ return function(params: table)
 				BackgroundColor3 = Color3.fromHex("ffffff"),
 				ZIndex = 2,
 				Image = params.image,
+				Rotation = styles.rotation2,
 				Size = UDim2.fromScale(0.65, 0.65),
 			}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
 		}),
@@ -121,3 +150,6 @@ return function(params: table)
 		}),
 	})
 end
+
+Button = RoactHooks.new(Roact)(Button)
+return Button

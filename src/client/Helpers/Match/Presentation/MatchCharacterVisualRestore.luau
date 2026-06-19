@@ -163,7 +163,14 @@ function MatchCharacterVisualRestore.RestoreCharacterVisuals(root: Instance?)
 	end
 
 	local function restore(instance: Instance)
+		pcall(function()
+			instance:SetAttribute("MatchForceDisabledActionFx", nil)
+		end)
+
 		if instance:IsA("BasePart") then
+			pcall(function()
+				instance.CollisionGroup = "Humanoid"
+			end)
 			if shouldRestorePart(instance) then
 				instance.LocalTransparencyModifier = 0
 				if instance.Transparency >= 1 then

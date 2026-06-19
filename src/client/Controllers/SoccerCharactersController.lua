@@ -48,6 +48,7 @@ local SoccerCharactersController = Knit.CreateController({
 	SoccerCharactersInSession = {} :: table,
 	AccessoriesByPlayer = {} :: table,
 	RawSoccerCharactersByPlayer = {} :: table,
+	CharacterConnections = {} :: table,
 	SoccerCharacterInstances = nil,
 })
 
@@ -70,7 +71,91 @@ local function setupMergeZone(instance: BasePart)
 end
 
 --|| Functions ||--
+function SoccerCharactersController:BuildEquippedCharacters(data: table, equippedSoccerCharacters: table?, soccerCharacters: table?): table
+	local equipped = {}
+	local inventory = soccerCharacters or (data.Inventory and data.Inventory.SoccerCharacters) or {}
+	local equippedIds = equippedSoccerCharacters or (data.Inventory and data.Inventory.EquippedSoccerCharacters) or {}
+
+	for _, id in pairs(equippedIds) do
+		local char = inventory[tostring(id)] or inventory[tonumber(id)] or inventory[id]
+		if char then
+			table.insert(equipped, char)
+		end
+	end
+
+	return equipped
+end
+
+function SoccerCharactersController:ApplyEquippedCharactersPayload(player: Player, payload: table)
+	payload = payload or {}
+	self.AccessoriesByPlayer[player] = payload.Accessories or {}
+	self:AddCharacters(player, payload.Equipped or {})
+end
+
+function SoccerCharactersController:RefreshEquippedCharacters(player: Player)
+	local success, payload = SoccerCharactersService:GetEquippedCharacters(player):await()
+	if success and payload then
+		self:ApplyEquippedCharactersPayload(player, payload)
+		return true
+	end
+
+	return false
+end
+
+function SoccerCharactersController:DestroyRenderedCharacter(player: Player, index: string | number)
+	local modelName = player.Name .. "_" .. tostring(index)
+
+	for _, soccerCharacter in self.SoccerCharacterInstances:GetChildren() do
+		if soccerCharacter.Name == modelName then
+			local excludeIndex = table.find(RaycastExcludeModels, soccerCharacter)
+			if excludeIndex then
+				table.remove(RaycastExcludeModels, excludeIndex)
+			end
+
+			soccerCharacter:Destroy()
+		end
+	end
+end
+
+function SoccerCharactersController:CleanupRenderedCharacters(player: Player, generatedCharacters: table)
+	local keptByName = {}
+
+	for _, soccerCharacter in self.SoccerCharacterInstances:GetChildren() do
+		if soccerCharacter:GetAttribute("Owner") ~= player.Name then
+			continue
+		end
+
+		local keep = false
+		for index in pairs(generatedCharacters) do
+			local modelName = player.Name .. "_" .. tostring(index)
+			if soccerCharacter.Name == modelName and not keptByName[modelName] then
+				keptByName[modelName] = true
+				generatedCharacters[index].Model = soccerCharacter
+				keep = true
+				break
+			end
+		end
+
+		if not keep then
+			local excludeIndex = table.find(RaycastExcludeModels, soccerCharacter)
+			if excludeIndex then
+				table.remove(RaycastExcludeModels, excludeIndex)
+			end
+
+			soccerCharacter:Destroy()
+		end
+	end
+
+	for index, grid in pairs(generatedCharacters) do
+		local model = grid.Model
+		if not (typeof(model) == "Instance" and model.Parent) then
+			grid.Model = ""
+		end
+	end
+end
+
 function SoccerCharactersController:AddCharacters(player: Player, SoccerCharacters: table)
+	SoccerCharacters = SoccerCharacters or {}
 	self.RawSoccerCharactersByPlayer[player] = SoccerCharacters
 
 	if not self.SoccerCharactersInSession[player] then
@@ -93,9 +178,7 @@ function SoccerCharactersController:AddCharacters(player: Player, SoccerCharacte
 			self.SoccerCharactersInSession[player][i] = v
 		elseif OldCharacterNames[i] and v.Data.Name ~= OldCharacterNames[i] then
 			-- Character in this slot changed, destroy old model to trigger recreation
-			if self.SoccerCharacterInstances:FindFirstChild(player.Name .. "_" .. tostring(i)) then
-				self.SoccerCharacterInstances:FindFirstChild(player.Name .. "_" .. tostring(i)):Destroy()
-			end
+			self:DestroyRenderedCharacter(player, i)
 
 			-- Reset animation state to ensure new character plays animations
 			v.LastInformation.Animations = nil
@@ -119,11 +202,12 @@ function SoccerCharactersController:AddCharacters(player: Player, SoccerCharacte
 	for i, _ in self.SoccerCharactersInSession[player] do
 		if not GeneratedSoccerCharacters[i] then
 			self.SoccerCharactersInSession[player][i] = nil
-			if self.SoccerCharacterInstances:FindFirstChild(player.Name .. "_" .. tostring(i)) then
-				self.SoccerCharacterInstances:FindFirstChild(player.Name .. "_" .. tostring(i)):Destroy()
-			end
+			self:DestroyRenderedCharacter(player, i)
 		end
 	end
+
+	self:CleanupRenderedCharacters(player, GeneratedSoccerCharacters)
+	self:RefreshPlayerTarget(player)
 end
 
 function SoccerCharactersController:ResetCollisionGroups()
@@ -258,32 +342,73 @@ function SoccerCharactersController:HandleMove()
 end
 
 function SoccerCharactersController:PlayerRemove(player: Player)
-	if self.SoccerCharactersInSession[player] then
-		local FoundSoccerCharacters = Filter(
-			self.SoccerCharacterInstances:GetChildren(),
-			function(SoccerCharacter: Model)
-				return SoccerCharacter:GetAttribute("Owner") == player.Name
-			end
-		) :: { Model }
-
-		for _, SoccerCharacter in FoundSoccerCharacters do
-			local ExcludeIndex = table.find(RaycastExcludeModels, SoccerCharacter)
-			if ExcludeIndex then
-				table.remove(RaycastExcludeModels, ExcludeIndex)
-			end
-
-			SoccerCharacter:Destroy()
-		end
-
-		for Index, Model in RaycastExcludeModels do
-			if Model.Name == player.Name then
-				table.remove(RaycastExcludeModels, Index)
-			end
-		end
-
-		self.SoccerCharactersInSession[player] = nil
-		self.AccessoriesByPlayer[player] = nil
+	if self.CharacterConnections[player] then
+		self.CharacterConnections[player]:Disconnect()
+		self.CharacterConnections[player] = nil
 	end
+
+	local FoundSoccerCharacters = Filter(
+		self.SoccerCharacterInstances:GetChildren(),
+		function(SoccerCharacter: Model)
+			return SoccerCharacter:GetAttribute("Owner") == player.Name
+		end
+	) :: { Model }
+
+	for _, SoccerCharacter in FoundSoccerCharacters do
+		local ExcludeIndex = table.find(RaycastExcludeModels, SoccerCharacter)
+		if ExcludeIndex then
+			table.remove(RaycastExcludeModels, ExcludeIndex)
+		end
+
+		SoccerCharacter:Destroy()
+	end
+
+	for Index, Model in RaycastExcludeModels do
+		if Model.Name == player.Name then
+			table.remove(RaycastExcludeModels, Index)
+		end
+	end
+
+	self.SoccerCharactersInSession[player] = nil
+	self.AccessoriesByPlayer[player] = nil
+	self.RawSoccerCharactersByPlayer[player] = nil
+end
+
+function SoccerCharactersController:RefreshPlayerTarget(player: Player)
+	local grids = self.SoccerCharactersInSession[player]
+	if not grids then
+		return
+	end
+
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		return
+	end
+
+	for _, grid in pairs(grids) do
+		if grid.Information then
+			grid.Information.Target = hrp
+		end
+	end
+end
+
+function SoccerCharactersController:SetupPlayerCharacterLifecycle(player: Player)
+	if self.CharacterConnections[player] then
+		return
+	end
+
+	self.CharacterConnections[player] = player.CharacterAdded:Connect(function(character)
+		task.spawn(function()
+			character:WaitForChild("HumanoidRootPart")
+			self:RefreshPlayerTarget(player)
+
+			local soccerCharacters = self.RawSoccerCharactersByPlayer[player]
+			if soccerCharacters then
+				self:AddCharacters(player, soccerCharacters)
+			end
+		end)
+	end)
 end
 
 --|| Knit Lifecycle ||--
@@ -314,22 +439,11 @@ end
 function SoccerCharactersController:KnitStart()
 	task.spawn(function()
 		for _, Player in Players:GetPlayers() do
+			self:SetupPlayerCharacterLifecycle(Player)
+
 			task.spawn(function()
 				local _ = Player.Character or Player.CharacterAdded:Wait()
-				local ___, Data = DataService:GetData(Player):await()
-
-				if Data and Data.Inventory then
-					self.AccessoriesByPlayer[Player] = Data.Inventory.Accessories
-					local equipped = {}
-					for _, id in pairs(Data.Inventory.EquippedSoccerCharacters) do
-						local char = Data.Inventory.SoccerCharacters[tostring(id)]
-							or Data.Inventory.SoccerCharacters[tonumber(id)]
-						if char then
-							table.insert(equipped, char)
-						end
-					end
-					self:AddCharacters(Player, equipped)
-				end
+				self:RefreshEquippedCharacters(Player)
 			end)
 		end
 	end)
@@ -338,11 +452,9 @@ function SoccerCharactersController:KnitStart()
 		self:PlayerRemove(player)
 	end)
 	Players.PlayerAdded:Connect(function(player: Player)
-		local ___, Data = DataService:GetData(player):await()
-		if Data and Data.Inventory then
-			self.AccessoriesByPlayer[player] = Data.Inventory.Accessories
-			self:AddCharacters(player, Data.Inventory.SoccerCharacters)
-		end
+		self:SetupPlayerCharacterLifecycle(player)
+
+		self:RefreshEquippedCharacters(player)
 	end)
 
 	self.SoccerCharacterInstances.ChildAdded:Connect(function(SoccerCharacter: Model)
@@ -362,21 +474,8 @@ function SoccerCharactersController:KnitStart()
 		LevelTL.Text = `{SoccerCharacter:GetAttribute("Level")}`
 	end)
 
-	TeamService.TeamSlotSet:Connect(function(player, equippedSoccerCharacters)
-		local ___, Data = DataService:GetData(player):await()
-
-		if Data and Data.Inventory then
-			self.AccessoriesByPlayer[player] = Data.Inventory.Accessories
-			local equipped = {}
-			for _, id in pairs(equippedSoccerCharacters) do
-				local char = Data.Inventory.SoccerCharacters[tostring(id)]
-					or Data.Inventory.SoccerCharacters[tonumber(id)]
-				if char then
-					table.insert(equipped, char)
-				end
-			end
-			self:AddCharacters(player, equipped)
-		end
+	TeamService.TeamSlotSet:Connect(function(player)
+		self:RefreshEquippedCharacters(player)
 	end)
 
 	TeleportService.PlayerTeleported:Connect(function(player)
@@ -395,15 +494,12 @@ function SoccerCharactersController:KnitStart()
 		local ___, Data = DataService:GetData():await()
 		if Data and Data.Inventory then
 			self.AccessoriesByPlayer[Players.LocalPlayer] = Data.Inventory.Accessories
-			local equipped = {}
-			for _, id in pairs(Data.Inventory.EquippedSoccerCharacters) do
-				local char = soccerInventory[tostring(id)] or soccerInventory[tonumber(id)]
-				if char then
-					table.insert(equipped, char)
-				end
-			end
-			self:AddCharacters(Players.LocalPlayer, equipped)
+			self:AddCharacters(Players.LocalPlayer, self:BuildEquippedCharacters(Data, nil, soccerInventory))
 		end
+	end)
+
+	SoccerCharactersService.EquippedCharactersUpdated:Connect(function(player, payload)
+		self:ApplyEquippedCharactersPayload(player, payload)
 	end)
 
 	self:HandleMove()

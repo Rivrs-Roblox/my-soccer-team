@@ -22,6 +22,24 @@ local NotificationController = Knit.CreateController({
 })
 
 local DataCacheController = nil
+local MatchController = nil
+
+local function IsMatchUiBlocked()
+	if not MatchController then
+		pcall(function()
+			MatchController = Knit.GetController("MatchController")
+		end)
+	end
+
+	if MatchController and MatchController.IsPlayingMatch then
+		local ok, isPlaying = pcall(function()
+			return MatchController:IsPlayingMatch()
+		end)
+		return ok and isPlaying == true
+	end
+
+	return false
+end
 
 function NotificationController:ApplyTextStyling(content)
 	local rich = false
@@ -139,8 +157,32 @@ function NotificationController:ProcessQueue()
 	end
 end
 
+function NotificationController:ClearQueueForMatch()
+	if self._fadeOutTask then
+		task.cancel(self._fadeOutTask)
+		self._fadeOutTask = nil
+	end
+
+	if self.Frame then
+		self.Frame:Destroy()
+	end
+
+	self.Frame = nil
+	self.CurrentTag = nil
+	self.IsProcessing = false
+	table.clear(self.Queue)
+end
+
 function NotificationController:Notify(params)
 	setmetatable(params, { __index = { tag = "", text = "", type = "INFO" } })
+
+	if params.tag == "" or params.tag == nil then
+		params.tag = params.text
+	end
+
+	if IsMatchUiBlocked() then
+		return
+	end
 
 	if params.tag ~= "" then
 		-- Jika sedang ditampilkan tag yang sama
@@ -224,6 +266,9 @@ end
 
 function NotificationController:KnitInit()
 	DataCacheController = Knit.GetController("DataCacheController")
+	pcall(function()
+		MatchController = Knit.GetController("MatchController")
+	end)
 	self.Colors = DataCacheController:GetFile("Colors")
 	print("[NOTIFICATION CONTROLLER] Controller loaded successfully.")
 end

@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Trove = require(ReplicatedStorage.Packages.Trove)
+local Sound = require(ReplicatedStorage.Packages.Sound)
 
 local TournamentChampionView = require(script.Parent.TournamentChampionView)
 
@@ -49,16 +50,8 @@ function TournamentChampionPresenter:Init()
 	self._view = self._trove:Add(TournamentChampionView.new())
 
 	local MatchController = Knit.GetController("MatchController")
-	local SoundController = Knit.GetController("SoundController")
 	local MatchCompanionVisualController = nil
 	local CoachesController = nil
-
-	local championMusic = Instance.new("Sound")
-	championMusic.Name = "ChampionCeremonyMusic"
-	championMusic.SoundId = "rbxassetid://82926677318271"
-	championMusic.Volume = 1
-	championMusic.Looped = true
-	championMusic.Parent = game:GetService("SoundService")
 
 	pcall(function()
 		MatchCompanionVisualController = Knit.GetController("MatchCompanionVisualController")
@@ -70,13 +63,12 @@ function TournamentChampionPresenter:Init()
 
 	if MatchController.ChampionCeremonyStarted then
 		self._trove:Add(MatchController.ChampionCeremonyStarted:Connect(function(payload)
-			-- Mute background music
-			if SoundController and SoundController.SetGlobalVolume then
-				SoundController:SetGlobalVolume("MUSIC", 0)
-			end
+			-- Stop background music
+			Sound:StopSound("MUSIC_Background")
+			Sound:StopSound("MUSIC_Fight")
 
 			-- Play champion music
-			championMusic:Play()
+			Sound:PlaySound("MUSIC_ChampionCeremony")
 
 			local companions = {}
 			if MatchCompanionVisualController and MatchCompanionVisualController.GetOwnedCompanionModels then
@@ -99,12 +91,10 @@ function TournamentChampionPresenter:Init()
 	if MatchController.ChampionCeremonyEnded then
 		self._trove:Add(MatchController.ChampionCeremonyEnded:Connect(function()
 			-- Stop champion music
-			championMusic:Stop()
+			Sound:StopSound("MUSIC_ChampionCeremony")
 
-			-- Restore background music
-			if SoundController and SoundController.SetGlobalVolume then
-				SoundController:SetGlobalVolume("MUSIC", 100)
-			end
+			-- Play background music
+			Sound:PlaySound("MUSIC_Background")
 
 			self._view:Hide()
 		end))

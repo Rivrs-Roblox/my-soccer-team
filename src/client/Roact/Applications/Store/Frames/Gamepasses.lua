@@ -57,13 +57,22 @@ local function Gamepasses(_, hooks)
 			order = 4,
 		},
 		{
+			name = "x2 Stamina",
+			description = "Receive a x2 Stamina multiplier while training!",
+			icon = UI.Stamina,
+			gradientColors = { "fff58a", "eed200" },
+			strokeColors = { "ff9500", "000000" },
+			value = "x2",
+			order = 6,
+		},
+		{
 			name = "x2 Wins",
 			description = "Receive a x2 Wins multiplier while fighting!",
 			icon = UI.Wins,
 			gradientColors = { "fff58a", "eed200" },
 			strokeColors = { "ff9500", "000000" },
 			value = "x2",
-			order = 5,
+			order = 7,
 		},
 		{
 			name = "x2 Rebirth",
@@ -73,7 +82,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "ff7ee3", "ee3095" },
 			strokeColors = { "d833c2", "000000" },
 			value = "x2",
-			order = 6,
+			order = 8,
 		},
 		{
 			name = "+25 Storage",
@@ -82,7 +91,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "3b65a3", "254066" },
 			strokeColors = { "1e40b9", "000000" },
 			value = "+25",
-			order = 7,
+			order = 9,
 		},
 		{
 			name = "+50 Storage",
@@ -91,7 +100,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "3b65a3", "254066" },
 			strokeColors = { "1e40b9", "000000" },
 			value = "+50",
-			order = 8,
+			order = 10,
 		},
 		{
 			name = "x5 Open",
@@ -100,7 +109,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "3b65a3", "254066" },
 			strokeColors = { "1e40b9", "000000" },
 			value = "x5",
-			order = 9,
+			order = 11,
 		},
 		{
 			name = "x10 Open",
@@ -109,7 +118,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "3b65a3", "254066" },
 			strokeColors = { "1e40b9", "000000" },
 			value = "x10",
-			order = 10,
+			order = 12,
 		},
 		{
 			name = "Lucky",
@@ -118,7 +127,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "3ce86a", "2aa34c" },
 			strokeColors = { "19ac2a", "000000" },
 			value = "x2",
-			order = 11,
+			order = 13,
 		},
 		{
 			name = "Super Lucky",
@@ -127,7 +136,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "d460e8", "a924b3" },
 			strokeColors = { "9930ac", "000000" },
 			value = "x3",
-			order = 12,
+			order = 14,
 		},
 		{
 			name = "Ultra Lucky",
@@ -136,7 +145,7 @@ local function Gamepasses(_, hooks)
 			gradientColors = { "ffb700", "ee6b00" },
 			strokeColors = { "ff7700", "000000" },
 			value = "x5",
-			order = 13,
+			order = 15,
 		},
 	}
 

@@ -9,4 +9,9 @@ return table.freeze({
 		Looped = true,
 		Volume = 0.5,
 	},
+	MUSIC_ChampionCeremony = {
+		Id = 82926677318271,
+		Looped = true,
+		Volume = 0.5,
+	},
 })

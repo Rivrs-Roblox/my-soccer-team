@@ -169,6 +169,55 @@ function AccessoryService:UnequipAllFromCharacter(player: Player, charId: any)
 	end
 end
 
+function AccessoryService:TransferAccessories(player: Player, fromCharId: any, toCharId: any)
+	local data = DataService:GetData(player)
+	if not data then return end
+
+	local fromChar = data.Inventory.SoccerCharacters[fromCharId]
+		or data.Inventory.SoccerCharacters[tostring(fromCharId)]
+		or data.Inventory.SoccerCharacters[tonumber(fromCharId)]
+
+	local toChar = data.Inventory.SoccerCharacters[toCharId]
+		or data.Inventory.SoccerCharacters[tostring(toCharId)]
+		or data.Inventory.SoccerCharacters[tonumber(toCharId)]
+
+	if not fromChar or not toChar then return end
+
+	local sourceAccessories = fromChar.Accessories or {}
+
+	-- Unequip any existing accessories from the destination character
+	if toChar.Accessories then
+		for slot, _ in pairs(toChar.Accessories) do
+			internalUnequip(data, toChar, slot)
+		end
+	end
+
+	toChar.Accessories = {}
+	local changed = false
+
+	for slot, aid in pairs(sourceAccessories) do
+		-- Mark as equipped for the destination character
+		local invItem = data.Inventory.Accessories[aid]
+			or data.Inventory.Accessories[tostring(aid)]
+			or data.Inventory.Accessories[tonumber(aid)]
+
+		if invItem then
+			toChar.Accessories[slot] = tostring(aid)
+			invItem.Equipped = true
+			changed = true
+		end
+	end
+
+	-- Clear source character's accessories, but do NOT unequip them 
+	-- from the inventory because they are now on the destination character
+	fromChar.Accessories = {}
+
+	if changed then
+		self.Client.AccessoriesUpdated:Fire(player, data.Inventory.Accessories)
+		self.SoccerCharactersChanged:Fire(player, data.Inventory.SoccerCharacters)
+	end
+end
+
 function AccessoryService:EquipBest(player: Player, charId: any)
 	local data = DataService:GetData(player)
 	if not data then return end

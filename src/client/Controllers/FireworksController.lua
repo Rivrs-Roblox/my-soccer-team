@@ -559,35 +559,84 @@ function FireworksController:KnitStart()
 	debugLog("KnitStart.")
 	createTestSpawnMarker()
 
-	task.spawn(function()
-		local lobby = findLobby()
+	local function tryLaunchFromLobby(lobby: Instance): boolean
 		if not lobby then
-			-- Pasif wait jika model belum ter-stream/load di frame pertama
-			local area05Direct = Workspace:WaitForChild("Area05", 5)
-			if area05Direct then
-				lobby = area05Direct:WaitForChild("Lobby", 5)
-			else
-				local mapAreas = Workspace:WaitForChild("MapAreas", 5)
-				local area05 = mapAreas and mapAreas:WaitForChild("Area05", 5)
-				lobby = area05 and area05:WaitForChild("Lobby", 5)
+			return false
+		end
+
+		local launchers = getLaunchers(lobby)
+		if #launchers == 0 then
+			debugLog("Lobby found but no launchers inside: %s", lobby:GetFullName())
+			return false
+		end
+
+		-- Disable/destroy old script inside launchers to prevent double execution
+		for _, launcher in ipairs(launchers) do
+			local oldScript = launcher:FindFirstChild("FireworksScript")
+			if oldScript then
+				oldScript.Enabled = false
+				oldScript:Destroy()
 			end
 		end
 
-		if lobby then
-			local launchers = getLaunchers(lobby)
-			if #launchers > 0 then
-				-- Disable/destroy old script inside launchers to prevent double execution
-				for _, launcher in ipairs(launchers) do
-					local oldScript = launcher:FindFirstChild("FireworksScript")
-					if oldScript then
-						oldScript.Enabled = false
-						oldScript:Destroy()
-					end
+		self:_startFireworks(launchers)
+		return true
+	end
+
+	local function waitAndLaunch()
+		-- Coba langsung dulu (jika sudah ada di workspace)
+		local lobby = findLobby()
+		if lobby and tryLaunchFromLobby(lobby) then
+			return
+		end
+
+		debugLog("Area05 belum ter-load, menunggu dengan timeout lebih panjang...")
+
+		-- Coba path langsung (Workspace.Area05) dengan timeout lebih panjang
+		local area05Direct = Workspace:WaitForChild("Area05", 60)
+		if area05Direct then
+			local lobbyDirect = area05Direct:WaitForChild("Lobby", 15)
+			if lobbyDirect and tryLaunchFromLobby(lobbyDirect) then
+				return
+			end
+		end
+
+		-- Fallback: coba path MapAreas
+		local mapAreas = Workspace:FindFirstChild("MapAreas")
+			or Workspace:WaitForChild("MapAreas", 10)
+		if mapAreas then
+			local area05 = mapAreas:FindFirstChild("Area05")
+				or mapAreas:WaitForChild("Area05", 60)
+			if area05 then
+				local lobbyNested = area05:FindFirstChild("Lobby")
+					or area05:WaitForChild("Lobby", 15)
+				if lobbyNested then
+					tryLaunchFromLobby(lobbyNested)
 				end
-
-				self:_startFireworks(launchers)
 			end
 		end
+	end
+
+	task.spawn(waitAndLaunch)
+
+	-- Fallback dinamis: jika Area05 ter-stream masuk workspace SETELAH timeout habis
+	-- (misalnya player teleport ke Area05 jauh setelah game start)
+	local streamConn
+	streamConn = Workspace.ChildAdded:Connect(function(child)
+		if child.Name ~= "Area05" then
+			return
+		end
+		if self._isRunning then
+			streamConn:Disconnect()
+			return
+		end
+		debugLog("Area05 ter-stream masuk workspace, mencoba launch fireworks...")
+		task.spawn(function()
+			local lobby = child:WaitForChild("Lobby", 15)
+			if lobby and tryLaunchFromLobby(lobby) then
+				streamConn:Disconnect()
+			end
+		end)
 	end)
 end
 

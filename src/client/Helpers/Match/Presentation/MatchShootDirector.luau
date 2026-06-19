@@ -7,7 +7,6 @@ return function(MatchPresentationController, Context)
 	local Debris = Services.Debris
 	local PhysicsService = Services.PhysicsService
 	local ContentProvider = Services.ContentProvider or game:GetService("ContentProvider")
-	local DEBUG_SHOOT_FLOW = false
 
 	local Knit = Context.Knit
 	local LocalPlayer = Context.LocalPlayer
@@ -280,6 +279,11 @@ local RESULT_FREEZE_FALLBACK_SECONDS = 1.15
 local SHOOT_CINEMATIC_FREEZE_GUARD_DURATION = 3.5
 local KICK_SOUND_ID = "KickHard"
 local GOAL_SOUND_ID = "Goal"
+
+-- Goal climax: extra celebration hold before result popup appears
+local GOAL_CELEBRATION_EXTRA_HOLD = 1.5
+local GOAL_CAMERA_SHAKE_STRENGTH = 1.65
+local GOAL_CAMERA_SHAKE_DURATION = 0.55
 
 local SHOOT_ANIMATION_NAMES = {
 	["Shoot"] = true,
@@ -653,8 +657,8 @@ local function forceShooterIdleNow(self, actorModel)
 		return
 	end
 
-	local stoppedShootCount = stopShootAnimationTracks(actorModel, 0)
-	local stoppedActionCount = stopNonIdleShooterTracks(actorModel, 0, false)
+	stopShootAnimationTracks(actorModel, 0)
+	stopNonIdleShooterTracks(actorModel, 0, false)
 
 	resetAnimationStateForModel(self, actorModel)
 	stopForcedPostKickIdleTrack(self)
@@ -671,15 +675,6 @@ local function forceShooterIdleNow(self, actorModel)
 	)
 
 	self.ForcedPostKickIdleTrack = idleTrack
-
-	if DEBUG_SHOOT_FLOW then
-		print(
-			"[SHOOT FLOW] forced shooter idle",
-			"shootTracks=", stoppedShootCount,
-			"actionTracks=", stoppedActionCount,
-			"idleTrack=", idleTrack ~= nil
-		)
-	end
 end
 
 local function startShooterPostKickIdleGuard(self, sessionId, actorModel)
@@ -752,7 +747,11 @@ local function requestNpcSupporterGoalCheer(self, payload, reason)
 
 	-- Delay the UI score increment until this moment (when the ball actually reaches the net)
 	if self.MatchUIController and self.MatchUIController.IncrementMatchScore then
-		self.MatchUIController:IncrementMatchScore(payload.AwardedGoals or 1)
+		self.MatchUIController:IncrementMatchScore(payload.AwardedGoals or 1, payload)
+	end
+
+	if self.MatchService and self.MatchService.NotifyGoalCinematicClimax then
+		self.MatchService:NotifyGoalCinematicClimax(payload.SessionId)
 	end
 end
 
@@ -794,18 +793,6 @@ local function playForcedResultAnimation(self, actorModel, success, shouldLoop)
 		pcall(function()
 			resultTrack:AdjustSpeed(1.0)
 		end)
-	end
-
-	if DEBUG_SHOOT_FLOW then
-		local _, animationName, animationId = getTrackIdentity(resultTrack)
-		print(
-			"[SHOOT FLOW] result animation",
-			"name=", resultName,
-			"track=", resultTrack ~= nil,
-			"looped=", shouldLoop == true,
-			"animation=", animationName,
-			"id=", animationId
-		)
 	end
 
 	return resultTrack
@@ -1870,6 +1857,8 @@ local function startShootCinematicFreezeGuard(self, sessionId, shooterSlot, shoo
 end
 
 function MatchPresentationController:_handleShootResolved(payload, actorModel, enemyModel, actorRoot, success, notifyPostActionReady)
+	local successCrowdAudioPlayed = false
+	local goalNetImpactTriggered = false
 	local function notifyShootPostActionReady(reason)
 		if type(notifyPostActionReady) == "function" then
 			notifyPostActionReady(reason)
@@ -1883,17 +1872,11 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 
 	local sessionId = tostring(payload.SessionId)
 	if self.ActiveShootSessionLock == sessionId then
-		if DEBUG_SHOOT_FLOW then
-			warn("[SHOOT FLOW] ignored duplicate release", "token=", sessionId)
-		end
 		notifyShootPostActionReady("shoot post-action ready duplicate")
 		return
 	end
 	
 	self.ActiveShootSessionLock = sessionId
-	if DEBUG_SHOOT_FLOW then
-		print("[SHOOT FLOW] ready", "session=", sessionId)
-	end
 
 	-- During shoot cinematic, MatchShootDirector owns all local actor slots.
 	-- If only the shooter is locked, non-shooter companions can keep their old
@@ -1970,6 +1953,37 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 
 	local isPerfectShoot = success == true and shootTier == "Green"
 	local useSpecialShoot = isPerfectShoot and hasSpecialShootAnimation(actorModel)
+	
+	local function triggerGoalNetImpact()
+		if not self:_isSessionActive(payload.SessionId) then
+			return
+		end
+		if goalNetImpactTriggered then
+			return
+		end
+		goalNetImpactTriggered = true
+
+		if success == true then
+			if not successCrowdAudioPlayed then
+				successCrowdAudioPlayed = true
+				playMatchSound("Goal", { Volume = 1.0, Lifetime = 4 })
+				-- ApplauseBig for ALL goals (not just special shoot)
+				local applauseVolume = useSpecialShoot and 1.05 or 0.90
+				playMatchSound("ApplauseBig", { Volume = applauseVolume, Lifetime = 8 })
+			end
+
+			-- Camera shake for normal goals (perfect shoot gets its own shake at impact)
+			if not isPerfectShoot and MatchShootCinematicDirector.ShakeActiveCamera then
+				MatchShootCinematicDirector.ShakeActiveCamera(
+					GOAL_CAMERA_SHAKE_STRENGTH,
+					GOAL_CAMERA_SHAKE_DURATION
+				)
+			end
+
+			requestNpcSupporterGoalCheer(self, payload, "NetImpact")
+		end
+	end
+
 	local stopGreenActionFx = nil
 	if isPerfectShoot then
 		stopGreenActionFx = MatchActionFxHelper.StartActorGreenFx(actorModel, {
@@ -1982,11 +1996,11 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 
 	local shouldCatchSave = (not success) and shouldCatchSavedShot(shootTier, shotTargetId)
 	local shouldPowerBreakthrough = shouldUsePowerBreakthrough(success, shootTier, shotTargetId)
-	local shouldKeeperReactToGoal = success == true
-		and not shouldPowerBreakthrough
-		and not isCenterShotTarget(shotTargetId)
+	-- GoalHold includes center shots now (center was previously excluded but we need keeper to react)
+	local shouldKeeperReactToGoal = success == true and not shouldPowerBreakthrough
 	local shouldRunKeeperReaction = (not success) or shouldPowerBreakthrough or shouldKeeperReactToGoal
 	local saveReboundPos = nil
+	local holdPos = nil
 
 	if not success and not shouldCatchSave then
 		saveReboundPos = buildRandomSaveReboundPosition(
@@ -2067,6 +2081,12 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 
 		keeperContactResolved = true
 		playMatchSound("KeeperHold", { Volume = 1.0, Lifetime = 4 })
+
+		if MatchShootCinematicDirector.ShakeActiveCamera then
+			local shakeStrength = tonumber(MatchKeeperConfig.CatchShakeStrength) or 1.35
+			local shakeDuration = tonumber(MatchKeeperConfig.CatchShakeDuration) or 0.35
+			MatchShootCinematicDirector.ShakeActiveCamera(shakeStrength, shakeDuration)
+		end
 
 		if not self:_isSessionActive(payload.SessionId) or not self.MatchBallController then
 			return
@@ -2238,10 +2258,15 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 					DropDuration = MatchKeeperConfig.GoalBallDropDuration,
 					DropDistance = MatchKeeperConfig.GoalBallDropDistance,
 					DropBounceHeight = MatchKeeperConfig.GoalBallDropBounceHeight,
+					RollAfterDrop = true,
+					RollDirection = (ballEndPos - startPos),
+					RollSpeed = isPerfectShoot and 12.0 or 8.0,
+					RollDeceleration = 5.5,
 					ImpactAtFinish = isPerfectShoot,
 					ImpactEmitCount = 34,
 					ImpactLifetime = 0.62,
 					OnImpactAtFinish = function()
+						triggerGoalNetImpact()
 						if isPerfectShoot and MatchShootCinematicDirector.ShakeActiveCamera then
 							local goalShakeStrength = type(MatchKeeperConfig.PowerBreakthroughGoalImpactShakeStrength) == "number"
 								and MatchKeeperConfig.PowerBreakthroughGoalImpactShakeStrength
@@ -2270,10 +2295,15 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 					DropDuration = MatchKeeperConfig.GoalBallDropDuration,
 					DropDistance = MatchKeeperConfig.GoalBallDropDistance,
 					DropBounceHeight = MatchKeeperConfig.GoalBallDropBounceHeight,
+					RollAfterDrop = true,
+					RollDirection = (ballEndPos - startPos),
+					RollSpeed = isPerfectShoot and 12.0 or 8.0,
+					RollDeceleration = 5.5,
 					ImpactAtFinish = isPerfectShoot,
 					ImpactEmitCount = 34,
 					ImpactLifetime = 0.62,
 					OnImpactAtFinish = function()
+						triggerGoalNetImpact()
 						if isPerfectShoot and MatchShootCinematicDirector.ShakeActiveCamera then
 							local goalShakeStrength = type(MatchKeeperConfig.PowerBreakthroughGoalImpactShakeStrength) == "number"
 								and MatchKeeperConfig.PowerBreakthroughGoalImpactShakeStrength
@@ -2295,6 +2325,141 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 				})
 			end
 		end)
+	end
+
+	local function handleKeeperGoalHoldContact(contactPayload)
+		if not self.MatchBallController or not self.MatchBallController.TriggerGoalHoldPhase then
+			return
+		end
+
+		local function getWorldCFrameFromTarget(target, fallbackCFrame)
+			if target and self.MatchBallController and self.MatchBallController._resolveWorldCFrame then
+				local ok, resolved = pcall(function()
+					return self.MatchBallController:_resolveWorldCFrame(target, fallbackCFrame)
+				end)
+
+				if ok and typeof(resolved) == "CFrame" then
+					return resolved
+				end
+			end
+
+			return fallbackCFrame
+		end
+
+		local function applyHandForwardOffset(contactCFrame)
+			if typeof(contactCFrame) ~= "CFrame" then
+				return nil
+			end
+
+			local isCenterHold = isCenterShotTarget(shotTargetId)
+			local offset = isCenterHold
+					and (tonumber(MatchKeeperConfig.GoalHoldCenterBallHandForwardOffset) or tonumber(MatchKeeperConfig.GoalHoldBallHandForwardOffset))
+				or tonumber(MatchKeeperConfig.GoalHoldBallHandForwardOffset)
+				or 0
+			if offset <= 0 then
+				return contactCFrame.Position
+			end
+
+			local forwardVector = nil
+			if isCenterHold then
+				forwardVector = contactCFrame.LookVector
+			else
+				local ballPos = self.MatchBallController:GetBallPosition()
+				if typeof(ballPos) == "Vector3" then
+					local toBall = ballPos - contactCFrame.Position
+					if toBall.Magnitude > 0.05 then
+						forwardVector = toBall.Unit
+					end
+				end
+			end
+
+			if not forwardVector then
+				forwardVector = contactCFrame.LookVector
+			end
+
+			return contactCFrame.Position + (forwardVector * offset)
+		end
+
+		-- Prefer the keeper controller's resolved contact payload. It already accounts
+		-- for grip attachments, center-hand midpoint, and the frozen keeper pose.
+		local payloadContactCFrame = nil
+		local handSnapFromPayload = false
+		if type(contactPayload) == "table" then
+			if contactPayload.TargetInstance then
+				payloadContactCFrame = getWorldCFrameFromTarget(contactPayload.TargetInstance, contactPayload.ContactCFrame)
+			elseif typeof(contactPayload.ContactCFrame) == "CFrame" then
+				payloadContactCFrame = contactPayload.ContactCFrame
+			elseif typeof(contactPayload.ContactPosition) == "Vector3" then
+				payloadContactCFrame = CFrame.new(contactPayload.ContactPosition)
+			end
+			handSnapFromPayload = typeof(payloadContactCFrame) == "CFrame"
+		end
+
+		local handSnapPosition = applyHandForwardOffset(payloadContactCFrame)
+
+		-- Fallback: find the keeper's catching hand position at this exact moment.
+		-- User rule: dive left -> right hand catches, dive right -> left hand catches, center -> either.
+		if not handSnapPosition and MatchActorResolver and MatchActorResolver.GetEnemyModelByStep then
+			local keeperModel = MatchActorResolver.GetEnemyModelByStep(5)
+			if keeperModel then
+				local targetIdLower = string.lower(tostring(shotTargetId or ""))
+				local isLeft = targetIdLower:find("left") ~= nil
+				local isRight = targetIdLower:find("right") ~= nil
+
+				local function findHand(side)
+					-- Look for dedicated catch attachment first, fallback to Hand part
+					return keeperModel:FindFirstChild(side .. "GripAttachment", true)
+						or keeperModel:FindFirstChild(side .. "HandCatchAttachment", true)
+						or keeperModel:FindFirstChild(side .. "BallCatchAttachment", true)
+						or keeperModel:FindFirstChild(side .. "WristRigAttachment", true)
+						or keeperModel:FindFirstChild(side .. "Hand", true)
+				end
+
+				local catchHand
+				if isLeft then
+					-- Shot goes left -> keeper dives left -> catching hand = Right
+					catchHand = findHand("Right")
+				elseif isRight then
+					-- Shot goes right -> keeper dives right -> catching hand = Left
+					catchHand = findHand("Left")
+				else
+					-- Center: pick whichever hand is closest to current ball position
+					local ballPos = self.MatchBallController:GetBallPosition()
+					local leftHand = findHand("Left")
+					local rightHand = findHand("Right")
+					if ballPos and leftHand and rightHand then
+						local lPos = leftHand:IsA("Attachment") and leftHand.WorldPosition or leftHand.Position
+						local rPos = rightHand:IsA("Attachment") and rightHand.WorldPosition or rightHand.Position
+						catchHand = (lPos - ballPos).Magnitude < (rPos - ballPos).Magnitude and leftHand or rightHand
+					else
+						catchHand = leftHand or rightHand
+					end
+				end
+
+				if catchHand then
+					local contactCFrame = nil
+					if catchHand:IsA("Attachment") then
+						contactCFrame = catchHand.WorldCFrame
+					elseif catchHand:IsA("BasePart") then
+						contactCFrame = catchHand.CFrame
+					end
+
+					handSnapPosition = applyHandForwardOffset(contactCFrame)
+				end
+			end
+		end
+
+		-- Snap threshold: avoid a bad attachment causing a full-field teleport, but allow
+		-- the normal keeper/ball gap so GoalHold reads as a hand catch.
+		if handSnapPosition then
+			local ballPos = self.MatchBallController:GetBallPosition()
+			local maxSnapDistance = tonumber(MatchKeeperConfig.GoalHoldHandSnapMaxDistance) or 12.0
+			if not handSnapFromPayload and ballPos and (handSnapPosition - ballPos).Magnitude > maxSnapDistance then
+				handSnapPosition = nil
+			end
+		end
+
+		self.MatchBallController:TriggerGoalHoldPhase(handSnapPosition)
 	end
 
 	local function handleKeeperSaveContact(contactPayload)
@@ -2403,7 +2568,7 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 		end
 
 		local keeperHandTarget = nil
-		if ((not success) or shouldPowerBreakthrough) and MatchActorResolver and MatchActorResolver.GetEnemyModelByStep then
+		if ((not success) or shouldPowerBreakthrough or (success and isPerfectShoot)) and MatchActorResolver and MatchActorResolver.GetEnemyModelByStep then
 			local keeperModel = MatchActorResolver.GetEnemyModelByStep(5)
 			if keeperModel then
 				local targetIdLower = string.lower(tostring(shotTargetId or ""))
@@ -2498,48 +2663,201 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 			goalImpactShakeDuration = tonumber(MatchKeeperConfig.GoalImpactSideShakeDuration) or 0.42
 		end
 
-		self.MatchBallController:PlayEpicShot(releaseStartPos, shotFlightEndPos, success, shootTier, {
-			IsSpecialShot = useSpecialShoot,
-			EnableFlightEffects = isPerfectShoot,
-			TargetInstance = shotFlightTargetInstance,
-			DropAfterFinish = success and not shouldPowerBreakthrough and (MatchKeeperConfig.GoalBallDropEnabled ~= false),
-			DropDelay = MatchKeeperConfig.GoalBallDropDelay,
-			DropDuration = MatchKeeperConfig.GoalBallDropDuration,
-			DropDistance = MatchKeeperConfig.GoalBallDropDistance,
-			DropBounceHeight = MatchKeeperConfig.GoalBallDropBounceHeight,
-			ImpactAtFinish = isPerfectShoot and not shouldPowerBreakthrough,
-			ImpactEmitCount = goalImpactEmitCount,
-			ImpactLifetime = goalImpactLifetime,
-			OnImpactAtFinish = function(impactPosition)
-				if shouldPowerBreakthrough then
-					local impactContactPayload = {}
-					if type(resolvedContactPayload) == "table" then
-						for key, value in pairs(resolvedContactPayload) do
-							impactContactPayload[key] = value
+		holdPos = nil
+		-- GoalHold applies to ALL successful goals including center perfect (PowerBreakthrough).
+		-- Previously center perfect skipped this, causing instant ragdoll with no hold phase.
+		if success and isPerfectShoot then
+			if MatchShootTargetResolver.GetKeeperSaveTarget then
+				local keeperSaveTarget = MatchShootTargetResolver.GetKeeperSaveTarget(shotTargetId)
+				if keeperSaveTarget then
+					local toShooter = (startPos - keeperSaveTarget.Position)
+					local toShooterFlat = Vector3.new(toShooter.X, 0, toShooter.Z)
+					local toShooterDir = toShooterFlat.Magnitude > 0.1 and toShooterFlat.Unit or Vector3.new(0,0,1)
+
+					-- Strategy: find where the ball path PASSES the keeper's front plane.
+					-- keeperSaveTarget is at the goal LINE (behind the keeper).
+					-- We need holdPos at the keeper's actual Z-depth (in front of keeper body).
+					local keeperWorldPos = nil
+					if MatchActorResolver and MatchActorResolver.GetEnemyModelByStep then
+						local km = MatchActorResolver.GetEnemyModelByStep(5)
+						local hrp = km and km:FindFirstChild("HumanoidRootPart")
+						keeperWorldPos = hrp and hrp.Position
+					end
+					if not keeperWorldPos and MatchSceneQuery and MatchSceneQuery.GetSpawnedEnemiesFolder then
+						local folder = MatchSceneQuery.GetSpawnedEnemiesFolder(false)
+						local km = folder and (folder:FindFirstChild("GoalKeeper") or folder:FindFirstChild("Keeper"))
+						if not km and folder then
+							for _, child in ipairs(folder:GetChildren()) do
+								local role = child:GetAttribute("MatchEnemyRole") or child:GetAttribute("Role")
+								if role == "GoalKeeper" or role == "Keeper" then
+									km = child
+									break
+								end
+							end
+						end
+						local hrp = km and km:FindFirstChild("HumanoidRootPart")
+						keeperWorldPos = hrp and hrp.Position
+					end
+
+					if keeperWorldPos then
+						-- Keeper front = keeper base + GoalForwardAdvance toward shooter
+						local goalFwdAdv = tonumber(MatchKeeperConfig.GoalForwardAdvance) or 0.55
+						local keeperFront = keeperWorldPos + toShooterDir * goalFwdAdv
+
+						-- Project ball path (start → end) onto keeper's forward plane.
+						-- Find parameter t where ball passes the keeper's "depth" along toShooterDir.
+						local ballPath = ballEndPos - releaseStartPos
+						local tDenom = ballPath:Dot(toShooterDir)
+						local t = 0.72 -- fallback alpha
+						if math.abs(tDenom) > 0.01 then
+							local tNum = (keeperFront - releaseStartPos):Dot(toShooterDir)
+							t = math.clamp(tNum / tDenom, 0.05, 0.95)
+						end
+						holdPos = releaseStartPos + ballPath * t
+						-- Keep save target height so ball stops at the right vertical height
+						if isCenterShotTarget(shotTargetId) then
+							holdPos = Vector3.new(keeperWorldPos.X, keeperSaveTarget.Position.Y, holdPos.Z)
+						else
+							holdPos = Vector3.new(holdPos.X, keeperSaveTarget.Position.Y, holdPos.Z)
+						end
+					else
+						-- Fallback if no keeper model: old method with large offset
+						local forwardOffset = tonumber(MatchKeeperConfig.GoalHoldForwardOffset) or 1.75
+						holdPos = keeperSaveTarget.Position + toShooterDir * forwardOffset
+					end
+
+				end
+			end
+		end
+
+
+		if holdPos then
+			local goalHoldExtraDuration = math.max(tonumber(MatchKeeperConfig.GoalHoldExtraHoldDuration) or 0, 0)
+			local goalHoldDurationOverride = useSpecialShoot and 1.8 or isPerfectShoot and 1.2 or 0.8
+			if isCenterShotTarget(shotTargetId) then
+				goalHoldDurationOverride += 0.4
+			end
+			goalHoldDurationOverride += goalHoldExtraDuration
+
+			self.MatchBallController:PlayGoalHoldShot(releaseStartPos, holdPos, ballEndPos, {
+				TargetInstance = keeperHandTarget,
+				WaitForKeeperContact = true,
+				DurationOverride = shotTravelDuration > 0.1 and shotTravelDuration or nil,
+				IsSpecialShot = useSpecialShoot,
+				EnableFlightEffects = isPerfectShoot,
+				IsCenter = isCenterShotTarget(shotTargetId),
+				HoldDurationOverride = goalHoldDurationOverride,
+				HandSnapBlendDuration = MatchKeeperConfig.GoalHoldHandSnapBlendDuration,
+				HandRetargetMinDuration = MatchKeeperConfig.GoalHoldHandRetargetMinDuration,
+				HandRetargetMaxDuration = MatchKeeperConfig.GoalHoldHandRetargetMaxDuration,
+				DropAfterFinish = success and (MatchKeeperConfig.GoalBallDropEnabled ~= false),
+				DropDelay = MatchKeeperConfig.GoalBallDropDelay,
+				DropDuration = MatchKeeperConfig.GoalBallDropDuration,
+				DropDistance = MatchKeeperConfig.GoalBallDropDistance,
+				DropBounceHeight = MatchKeeperConfig.GoalBallDropBounceHeight,
+				RollAfterDrop = success == true,
+				RollDirection = (ballEndPos - startPos),
+				RollSpeed = isPerfectShoot and 12.0 or 8.0,
+				RollDeceleration = 5.5,
+				ImpactAtFinish = isPerfectShoot,
+				ImpactEmitCount = goalImpactEmitCount,
+				ImpactLifetime = goalImpactLifetime,
+				OnHoldStart = function()
+					if MatchShootCinematicDirector.ShakeActiveCamera then
+						-- Center gets heavier shake at hold start
+						local centerShot = isCenterShotTarget(shotTargetId)
+						local shakeStr = centerShot and 1.2 or 0.35
+						local shakeDur = centerShot and 0.55 or 0.45
+						MatchShootCinematicDirector.ShakeActiveCamera(shakeStr, shakeDur)
+					end
+					-- Perpanjang FX bola perfect shoot agar tetap menyala selama hold berlangsung
+					if isPerfectShoot and self.MatchBallController and self.MatchBallController.ActivateActionSpecialEffects then
+						self.MatchBallController:ActivateActionSpecialEffects(goalHoldDurationOverride + 0.2)
+					end
+				end,
+				OnHoldRelease = function()
+					if MatchShootCinematicDirector.ShakeActiveCamera then
+						MatchShootCinematicDirector.ShakeActiveCamera(2.0, 0.65)
+					end
+					if self.MatchKeeperPresentationController and self.MatchKeeperPresentationController.DropKeeperFromGoalHold then
+						local kModel = nil
+						if MatchActorResolver and MatchActorResolver.GetEnemyModelByStep then
+							kModel = MatchActorResolver.GetEnemyModelByStep(5)
+						end
+						if kModel then
+							self.MatchKeeperPresentationController:DropKeeperFromGoalHold(kModel)
 						end
 					end
-
-					impactContactPayload.ContactCFrame = CFrame.new(impactPosition)
-					impactContactPayload.ContactPosition = impactPosition
-					impactContactPayload.ShotTargetId = shotTargetId
-					impactContactPayload.Reason = "power-breakthrough-flight-impact"
-
-					handleKeeperPowerBreakthroughContact(impactContactPayload)
-					return
-				end
-
-				if isPerfectShoot then
-					stopExcellentSpeedEffect(self)
-				end
-
-				if success and not shouldPowerBreakthrough and isPerfectShoot then
-					if MatchShootCinematicDirector.ShakeActiveCamera then
-						MatchShootCinematicDirector.ShakeActiveCamera(goalImpactShakeStrength, goalImpactShakeDuration)
+				end,
+				OnImpactAtFinish = function(impactPosition)
+					if success then
+						triggerGoalNetImpact()
 					end
-					triggerKeeperGoalImpactRagdoll(self, payload, impactPosition, shotTargetId)
-				end
-			end,
-		})
+
+					if isPerfectShoot then
+						stopExcellentSpeedEffect(self)
+					end
+
+					if success and isPerfectShoot then
+						if MatchShootCinematicDirector.ShakeActiveCamera then
+							MatchShootCinematicDirector.ShakeActiveCamera(goalImpactShakeStrength, goalImpactShakeDuration)
+						end
+						triggerKeeperGoalImpactRagdoll(self, payload, impactPosition, shotTargetId)
+					end
+				end,
+			})
+		else
+			self.MatchBallController:PlayEpicShot(releaseStartPos, shotFlightEndPos, success, shootTier, {
+				IsSpecialShot = useSpecialShoot,
+				EnableFlightEffects = isPerfectShoot,
+				TargetInstance = shotFlightTargetInstance,
+				DropAfterFinish = success and not shouldPowerBreakthrough and (MatchKeeperConfig.GoalBallDropEnabled ~= false),
+				DropDelay = MatchKeeperConfig.GoalBallDropDelay,
+				DropDuration = MatchKeeperConfig.GoalBallDropDuration,
+				DropDistance = MatchKeeperConfig.GoalBallDropDistance,
+				DropBounceHeight = MatchKeeperConfig.GoalBallDropBounceHeight,
+				RollAfterDrop = success == true and not shouldPowerBreakthrough,
+				RollDirection = (ballEndPos - startPos),
+				RollSpeed = isPerfectShoot and 12.0 or 8.0,
+				RollDeceleration = 5.5,
+				ImpactAtFinish = isPerfectShoot and not shouldPowerBreakthrough,
+				ImpactEmitCount = goalImpactEmitCount,
+				ImpactLifetime = goalImpactLifetime,
+				OnImpactAtFinish = function(impactPosition)
+					if success then
+						triggerGoalNetImpact()
+					end
+
+					if shouldPowerBreakthrough then
+						local impactContactPayload = {}
+						if type(resolvedContactPayload) == "table" then
+							for key, value in pairs(resolvedContactPayload) do
+								impactContactPayload[key] = value
+							end
+						end
+
+						impactContactPayload.ContactCFrame = CFrame.new(impactPosition)
+						impactContactPayload.ContactPosition = impactPosition
+						impactContactPayload.ShotTargetId = shotTargetId
+						impactContactPayload.Reason = "power-breakthrough-flight-impact"
+
+						handleKeeperPowerBreakthroughContact(impactContactPayload)
+						return
+					end
+
+					if isPerfectShoot then
+						stopExcellentSpeedEffect(self)
+					end
+
+					if success and not shouldPowerBreakthrough and isPerfectShoot then
+						if MatchShootCinematicDirector.ShakeActiveCamera then
+							MatchShootCinematicDirector.ShakeActiveCamera(goalImpactShakeStrength, goalImpactShakeDuration)
+						end
+						triggerKeeperGoalImpactRagdoll(self, payload, impactPosition, shotTargetId)
+					end
+				end,
+			})
+		end
 		if useSpecialShoot then
 			playMatchSound("ShootSpecial", { Volume = 1.0, Lifetime = 4 })
 			playMatchSound("BallFlying", { Volume = 0.85, Lifetime = 4 })
@@ -2560,19 +2878,27 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 		end
 
 		if self.MatchKeeperPresentationController and shouldRunKeeperReaction then
-			local keeperReactionTarget = success and shotTargetPos or ballEndPos
-			if shouldPowerBreakthrough and MatchShootTargetResolver.GetKeeperSaveTarget then
-				local keeperSaveTarget = MatchShootTargetResolver.GetKeeperSaveTarget(shotTargetId)
-				if keeperSaveTarget and typeof(keeperSaveTarget.Position) == "Vector3" then
-					keeperReactionTarget = keeperSaveTarget.Position
-				end
-			end
+			local keeperReactionTarget = success and (holdPos or shotTargetPos) or ballEndPos
 
 			local keeperContactMinDelay = nil
 			if (not success) and shouldCatchSave then
 				keeperContactMinDelay = (shotTravelDuration * (tonumber(MatchKeeperConfig.KeeperCatchLockContactMinDelayAlpha) or 0.82))
 					+ (tonumber(MatchKeeperConfig.KeeperCatchLockContactMinDelayPadding) or 0.03)
 			end
+
+			-- Compute GoalHold duration to match what PlayGoalHoldShot will use
+			local isCenterShot = isCenterShotTarget(shotTargetId)
+			local goalHoldDuration = 0.8 -- Yellow default
+			if useSpecialShoot then
+				goalHoldDuration = 1.8
+			elseif isPerfectShoot then
+				goalHoldDuration = 1.2
+			end
+			-- Center gets extra hold time for dramatic effect
+			if isCenterShot then
+				goalHoldDuration = goalHoldDuration + 0.4
+			end
+			goalHoldDuration += math.max(tonumber(MatchKeeperConfig.GoalHoldExtraHoldDuration) or 0, 0)
 
 			self.MatchKeeperPresentationController:ReactToShot(
 				success,
@@ -2583,6 +2909,8 @@ function MatchPresentationController:_handleShootResolved(payload, actorModel, e
 					OnCatchContact = handleKeeperCatchContact,
 					OnSaveContact = handleKeeperSaveContact,
 					OnPowerBreakthroughContact = handleKeeperPowerBreakthroughContact,
+					OnGoalHoldContact = handleKeeperGoalHoldContact,
+					GoalHoldDuration = success and goalHoldDuration or nil,
 					ContactMinDelaySeconds = keeperContactMinDelay,
 					ShotTravelDuration = shotTravelDuration,
 					PowerBreakthroughCarryTargetPosition = shouldPowerBreakthrough and ballEndPos or nil,
@@ -2659,7 +2987,7 @@ local function playShoot()
 	local stopShooterIdleGuard = nil
 	local stopResultAnimationGuard = nil
 	local resultAnimationPlayed = false
-	local successCrowdAudioPlayed = false
+	-- successCrowdAudioPlayed declared at top of _handleShootResolved
 	local shootCameraReleased = false
 
 	local function playResultSequence(reason)
@@ -2673,10 +3001,8 @@ local function playShoot()
 
 		resultAnimationPlayed = true
 		if success == true then
-			if not successCrowdAudioPlayed then
-				successCrowdAudioPlayed = true
-				playMatchSound("Goal", { Volume = 1.0, Lifetime = 4 })
-				playMatchSound(useSpecialShoot and "ApplauseBig" or "Applause", { Volume = 0.85, Lifetime = 6 })
+			if not goalNetImpactTriggered then
+				triggerGoalNetImpact()
 			end
 		else
 			playMatchSound("Booing", { Volume = 0.75, Lifetime = 5 })
@@ -2717,10 +3043,6 @@ local function playShoot()
 
 		RunService.RenderStepped:Wait()
 
-		if DEBUG_SHOOT_FLOW then
-			print("[SHOOT FLOW] result camera ready", "reason=", reason or "unknown")
-		end
-
 		if stopResultAnimationGuard then
 			stopResultAnimationGuard()
 			stopResultAnimationGuard = nil
@@ -2729,7 +3051,9 @@ local function playShoot()
 		stopResultAnimationGuard = playShooterResultOneShot(self, payload.SessionId, actorModel, success)
 
 		if success == true then
-			requestNpcSupporterGoalCheer(self, payload, "ShootResultAnimationGoal")
+			if not goalNetImpactTriggered then
+				triggerGoalNetImpact()
+			end
 		end
 
 		self:_idleAllEnemiesAfterShot()
@@ -2784,6 +3108,29 @@ local function playShoot()
 		end)
 	end
 
+	local cinematicTravelDuration = shotTravelDuration
+	if success and isPerfectShoot then
+		local isCenterShot = isCenterShotTarget(shotTargetId)
+		local goalHoldDuration = 0.8
+		if useSpecialShoot then
+			goalHoldDuration = 1.8
+		elseif isPerfectShoot then
+			goalHoldDuration = 1.2
+		end
+		if isCenterShot then
+			goalHoldDuration = goalHoldDuration + 0.4
+		end
+		goalHoldDuration += math.max(tonumber(MatchKeeperConfig.GoalHoldExtraHoldDuration) or 0, 0)
+
+		local config = MatchBallConfig and MatchBallConfig.GoalHoldShot or {}
+		local holdAlpha = math.clamp(config.HoldAlpha or 0.72, 0.1, 0.95)
+		local phase2Multiplier = config.Phase2SpeedMultiplier or 1.45
+		
+		local phase1Dur = shotTravelDuration * holdAlpha
+		local phase3Dur = (shotTravelDuration * (1 - holdAlpha)) / phase2Multiplier
+		cinematicTravelDuration = phase1Dur + goalHoldDuration + phase3Dur + 0.08
+	end
+
 	MatchShootCinematicDirector.PlayNormalShootCinematic({
 		SessionId = payload.SessionId,
 		ActorRoot = actorRoot,
@@ -2792,7 +3139,7 @@ local function playShoot()
 		EndPos = shotTargetPos,
 		BallEndPos = ballEndPos,
 		ShotTargetId = shotTargetId,
-		ShotTravelDuration = shotTravelDuration,
+		ShotTravelDuration = cinematicTravelDuration,
 		CameraController = self.MatchBattleCameraController,
 		ShakeStrength = isPerfectShoot and 1.95 or (success and 1.35 or 0.72),
 		ShakeDuration = isPerfectShoot and 0.40 or (success and 0.30 or 0.22),
@@ -2844,6 +3191,11 @@ local function playShoot()
 
 	task.wait(RESULT_UI_DELAY)
 
+	-- Goal climax: extra hold so the GOAL! popup is savored before result appears
+	if success and self:_isSessionActive(payload.SessionId) then
+		task.wait(GOAL_CELEBRATION_EXTRA_HOLD)
+	end
+
 	if self:_isSessionActive(payload.SessionId) and self.MatchUIController then
 		self.MatchUIController:ShowMatchResult(success, payload)
 	end
@@ -2874,10 +3226,6 @@ local function playShoot()
 
 	-- Keep shoot result camera locked behind the player until match cleanup/teleport.
 	-- MatchPresentationCleanup calls MatchShootCinematicDirector.Stop() when the session ends.
-	if DEBUG_SHOOT_FLOW then
-		print("[SHOOT FLOW] result camera held until session cleanup", "session=", sessionId)
-	end
-
 	if self.ActiveShootSessionLock == sessionId then
 		self.ActiveShootSessionLock = nil
 	end

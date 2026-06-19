@@ -157,14 +157,14 @@ function TrainingBillboardGuiController:KnitInit()
 end
 
 function TrainingBillboardGuiController:KnitStart()
-	-- initial sync dari data player
-	local currentAreaId = self:ResolveCurrentAreaId(DataService)
-	self:ApplyAreaToBillboards(currentAreaId)
+	-- -- initial sync dari data player
+	-- local currentAreaId = self:ResolveCurrentAreaId(DataService)
+	-- self:ApplyAreaToBillboards(currentAreaId)
 
-	-- update saat area pindah dari teleport service
-	TeleportService.AreaUpdated:Connect(function(newAreaId: string)
-		self:ApplyAreaToBillboards(newAreaId)
-	end)
+	-- -- update saat area pindah dari teleport service
+	-- TeleportService.AreaUpdated:Connect(function(newAreaId: string)
+	-- 	self:ApplyAreaToBillboards(newAreaId)
+	-- end)
 end
 
 return TrainingBillboardGuiController

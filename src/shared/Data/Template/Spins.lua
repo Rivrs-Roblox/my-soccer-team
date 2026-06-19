@@ -57,7 +57,7 @@ return table.freeze({
 		[3] = {
 			Name = "+2500 Wins",
 			Reward = "Wins",
-			Amount = 150,
+			Amount = 2500,
 			Chance = 15,
 		},
 
@@ -72,7 +72,7 @@ return table.freeze({
 			Name = "+500 Wins",
 			Reward = "Wins",
 			Amount = 500,
-			Chance = 30,
+			Chance = 32,
 		},
 
 		[6] = {
@@ -96,7 +96,7 @@ return table.freeze({
 			Category = "SoccerCharacters",
 			Type = "9",
 			Amount = 1,
-			Chance = 3,
+			Chance = 1,
 		},
 	},
 })

@@ -7,7 +7,6 @@ local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages:WaitForChild("Knit"))
 
 local MatchSceneQuery = require(ReplicatedStorage.Shared.Helpers.Match.MatchSceneQuery)
-local MatchIntroConfig = require(ReplicatedStorage.Shared.Data.Match.MatchIntroConfig)
 local EnemyBillboardFactory = require(script.Parent.Parent.Modules.Match.EnemyBillboardFactory)
 local Sound = require(Packages:WaitForChild("Sound"))
 local formatnumber = require(ReplicatedStorage.Shared.Helpers.Numbers.FormatNumber)
@@ -42,10 +41,6 @@ local ENEMY_BILLBOARD_OFFSETS = {
 
 local RETURN_OVERLAY_RELEASE_DELAY = 0.35
 local RETURN_OVERLAY_MIN_HOLD = 0.30
-local DEBUG_RETURN_ATTENDANCE = false
-local DEBUG_MATCH_NOTIFICATIONS = false
-local DEBUG_MATCH_INTRO = MatchIntroConfig.DebugMatchIntro == true
-local DEBUG_SPAWN_HANDOFF = false
 
 --| Match Controller |--
 local MatchController = Knit.CreateController({
@@ -76,9 +71,6 @@ end
 
 local function ForceStopLingeringMatchActionFx()
 	local roots = {
-		LocalPlayer.Character,
-		workspace:FindFirstChild("SoccerCharacters"),
-		workspace:FindFirstChild("Coaches"),
 		workspace:FindFirstChild("LocalMatchPresentationRuntime"),
 	}
 
@@ -93,6 +85,12 @@ end
 
 local function IsShootAction(actionName)
 	return string.lower(tostring(actionName or "")) == "shoot"
+end
+
+local function IsLegContinuationPayload(payload)
+	local tournament = payload and payload.Tournament
+	local currentLeg = tournament and tonumber(tournament.CurrentLeg)
+	return currentLeg ~= nil and currentLeg > 1
 end
 
 --| Client Functions |--
@@ -110,16 +108,24 @@ function MatchController:_notify(message, notificationType)
 	end
 	--]]
 
-	if DEBUG_MATCH_NOTIFICATIONS then
-		print("[Match Debug]", message)
-	elseif notificationType == "ERROR" then
+	if notificationType == "ERROR" then
 		warn("[MatchController]", message)
 	end
 end
 
-function MatchController:_debugIntro(message)
-	if DEBUG_MATCH_INTRO then
-		print("[MatchIntro] " .. tostring(message))
+function MatchController:_blockLobbyUiForMatch()
+	if UIController and UIController.CloseAllPanelsForMatch then
+		UIController:CloseAllPanelsForMatch()
+	end
+
+	if NotificationController and NotificationController.ClearQueueForMatch then
+		NotificationController:ClearQueueForMatch()
+	end
+end
+
+function MatchController:_unblockLobbyUiAfterMatch()
+	if UIController and UIController.SetMatchUiBlocked then
+		UIController:SetMatchUiBlocked(false)
 	end
 end
 
@@ -131,10 +137,6 @@ function MatchController:_cancelMatchIntro(reason)
 	local sessionId = self._introSessionId
 	self._introActive = false
 	self._introToken += 1
-
-	self:_debugIntro(
-		string.format("cancelled session=%s reason=%s", tostring(sessionId), tostring(reason or "Unknown"))
-	)
 
 	if self._matchIntroCancelledEvent then
 		self._matchIntroCancelledEvent:Fire({
@@ -157,11 +159,12 @@ function MatchController:_beginMatchIntro(payload)
 	self._introSessionId = tostring(payload.SessionId or "")
 	self._introCompleted = false
 
-	self:_debugIntro(string.format("start session=%s", tostring(self._introSessionId)))
-
 	local introData = payload.IntroData
 	if introData and not introData.AreaId then
 		introData.AreaId = payload.AreaId
+	end
+	if introData and payload.Tournament and tonumber(payload.Tournament.CurrentLeg) and tonumber(payload.Tournament.CurrentLeg) > 1 then
+		introData.MatchTitle = introData.MatchTitle or "MATCH CONTINUES"
 	end
 
 	if self._matchIntroRequestedEvent then
@@ -196,16 +199,11 @@ function MatchController:CompleteMatchIntro(sessionId, token, didComplete)
 	self._introCompleted = didComplete == true
 
 	if not self._introCompleted then
-		self:_debugIntro(string.format("cancelled session=%s reason=ViewCancelled", tostring(sessionId)))
 		return false
 	end
 
-	self:_debugIntro(string.format("complete session=%s", tostring(sessionId)))
-
 	local ok = ResolveRemoteResult(MatchService:NotifyMatchIntroCompleted(sessionId))
-	if ok then
-		self:_debugIntro(string.format("release presentation session=%s", tostring(sessionId)))
-	else
+	if not ok then
 		warn(string.format("[MatchIntro] failed to notify server intro complete session=%s", tostring(sessionId)))
 	end
 
@@ -414,11 +412,15 @@ function MatchController:RequestFinishChampionCeremony(sessionId)
 	return ResolveRemoteResult(MatchService:RequestFinishChampionCeremony(sessionId)) == true
 end
 
-function MatchController:_applySessionEndedFade(isTournamentContinuation, isChampionCeremony)
+function MatchController:_applySessionEndedFade(isTournamentContinuation, isChampionCeremony, reasonText)
 	-- Called SYNCHRONOUSLY (before task.spawn) so the fade starts on the same
 	-- frame the MatchSessionEnded signal fires — before MatchPresentationCleanup
 	-- ._endSession moves any actors/proxies into their reset positions.
 	if not MatchUIController then
+		return
+	end
+
+	if reasonText == "LegContinuation" then
 		return
 	end
 
@@ -442,6 +444,7 @@ function MatchController:_applySessionEndedFade(isTournamentContinuation, isCham
 	-- Normal return: _handleReturnStarted already called FadeToBlack via MatchReturnStarted.
 end
 
+-- Normal return: _handleReturnStarted already called FadeToBlack via MatchReturnStarted.
 function MatchController:_bindLeaveInput()
 	ContextActionService:BindAction(LEAVE_ACTION_NAME, function(_, inputState)
 		if inputState ~= Enum.UserInputState.Begin then
@@ -503,6 +506,11 @@ function MatchController:_handleTransitionRequested(mode, transitionData)
 		return
 	end
 	self._transitionBusy = true
+	local isLegContinuation = transitionData and transitionData.IsLegContinuation == true
+
+	if mode == "Enter" then
+		self:_blockLobbyUiForMatch()
+	end
 
 	task.spawn(function()
 		self:_disableControls()
@@ -515,9 +523,9 @@ function MatchController:_handleTransitionRequested(mode, transitionData)
 			MatchUIController:BeginMatchUi(function()
 				self:_requestExit("ManualExit")
 			end)
-			if mode == "Enter" then
+			if mode == "Enter" and not isLegContinuation then
 				MatchUIController:FadeToBlack("Entering Match...")
-			else
+			elseif mode ~= "Enter" then
 				MatchUIController:FadeToBlack("Returning...")
 			end
 		end
@@ -544,6 +552,8 @@ end
 
 function MatchController:_handleSessionStarted(payload)
 	task.spawn(function()
+		self:_blockLobbyUiForMatch()
+
 		self._currentSessionId = payload.SessionId
 		if MatchUIController and MatchUIController.SetActiveMatchSession then
 			MatchUIController:SetActiveMatchSession(payload.SessionId)
@@ -553,20 +563,18 @@ function MatchController:_handleSessionStarted(payload)
 		self._inMatch = true
 		self._qteOpen = false
 
-		Sound:StopSound("MUSIC_Background")
-		Sound:PlaySound("MUSIC_Fight")
+		local isLegContinuation = IsLegContinuationPayload(payload)
+
+		if not isLegContinuation then
+			Sound:StopSound("MUSIC_Background")
+			Sound:PlaySound("MUSIC_Fight")
+		end
 
 		self:_applyEnemyBillboards(payload)
 
-		self:_waitForIntroVisualReady(payload)
-		if DEBUG_SPAWN_HANDOFF then
-			print(string.format(
-				"[SpawnHandoff][MatchController] t=%.3f session=%s label=intro-visual-ready",
-				os.clock(),
-				tostring(payload and payload.SessionId or "")
-			))
+		if not isLegContinuation then
+			self:_waitForIntroVisualReady(payload)
 		end
-
 		if MatchUIController then
 			MatchUIController:SetGoalsValue(payload.CurrentGoals or 0)
 			MatchUIController:ShowExitButton()
@@ -577,42 +585,31 @@ function MatchController:_handleSessionStarted(payload)
 			end
 		end
 
-		if payload and payload.IntroData then
-			if DEBUG_MATCH_INTRO then
-				print("[MatchController] Starting intro for", payload.IntroData.HomeTeamName, "vs", payload.IntroData.AwayTeamName)
-			end
-		else
+		if not isLegContinuation and not (payload and payload.IntroData) then
 			warn("[MatchController] No IntroData found in payload for session", payload and payload.SessionId)
 		end
 
-		self:_beginMatchIntro(payload)
-		if payload and payload.IntroData then
+		if not isLegContinuation then
+			self:_beginMatchIntro(payload)
+		else
+			self:_cancelMatchIntro("LegContinuation")
+		end
+
+		if not isLegContinuation and payload and payload.IntroData then
 			-- Give the intro overlay one render frame to mount before releasing the global transition blackout.
 			-- This prevents a one-frame reveal of the proxy/original character handoff.
 			RunService.RenderStepped:Wait()
 		end
 
 		if MatchUIController then
-			if DEBUG_SPAWN_HANDOFF then
-				print(string.format(
-					"[SpawnHandoff][MatchController] t=%.3f session=%s label=fade-from-black-before",
-					os.clock(),
-					tostring(payload and payload.SessionId or "")
-				))
-			end
 			MatchUIController:FadeFromBlack()
-			if DEBUG_SPAWN_HANDOFF then
-				print(string.format(
-					"[SpawnHandoff][MatchController] t=%.3f session=%s label=fade-from-black-after",
-					os.clock(),
-					tostring(payload and payload.SessionId or "")
-				))
-			end
 		end
 
 		self:_disableControls()
 		self._transitionBusy = false
-		self:_notify(("Match ready for %s."):format(payload.AreaId), "SUCCESS")
+		if not isLegContinuation then
+			self:_notify(("Match ready for %s."):format(payload.AreaId), "SUCCESS")
+		end
 	end)
 end
 
@@ -692,22 +689,6 @@ function MatchController:_handleReturnStarted(payload)
 end
 
 function MatchController:_handleReturnAttendance(payload)
-	if not DEBUG_RETURN_ATTENDANCE or type(payload) ~= "table" then
-		return
-	end
-
-	local distanceText = payload.DistanceToOrigin and string.format("%.2f", payload.DistanceToOrigin) or "nil"
-	print(
-		string.format(
-			"[MatchReturn][Client] serverAttendance returned=%s character=%s root=%s anchored=%s distance=%s reason=%s",
-			tostring(payload.Returned),
-			tostring(payload.CharacterExists),
-			tostring(payload.RootExists),
-			tostring(payload.RootAnchored),
-			distanceText,
-			tostring(payload.Reason)
-		)
-	)
 end
 
 function MatchController:_restoreLobbyPresentationAfterMatch(reasonText)
@@ -751,14 +732,14 @@ function MatchController:_handleSessionEnded(reason, sessionId)
 		return
 	end
 
-	local isTournamentContinuation = reasonText == "VictoryContinuation"
+	local isTournamentContinuation = reasonText == "VictoryContinuation" or reasonText == "LegContinuation"
 	local isChampionCeremony = reasonText == "ChampionCeremony"
 
 	if MatchUIController and MatchUIController.ClearActiveMatchSession then
 		MatchUIController:ClearActiveMatchSession(endedSessionId ~= "" and endedSessionId or nil)
 	end
 
-	self:_applySessionEndedFade(isTournamentContinuation, isChampionCeremony)
+	self:_applySessionEndedFade(isTournamentContinuation, isChampionCeremony, reasonText)
 
 	task.spawn(function()
 		self._currentSessionId = nil
@@ -774,8 +755,10 @@ function MatchController:_handleSessionEnded(reason, sessionId)
 		self:_cancelMatchIntro(reason or "SessionEnded")
 		ForceStopLingeringMatchActionFx()
 
-		Sound:StopSound("MUSIC_Fight")
-		Sound:PlaySound("MUSIC_Background")
+		if not isTournamentContinuation and not isChampionCeremony then
+			Sound:StopSound("MUSIC_Fight")
+			Sound:PlaySound("MUSIC_Background")
+		end
 
 		if SoccerCharactersController and SoccerCharactersController.ResetCollisionGroups then
 			SoccerCharactersController:ResetCollisionGroups()
@@ -810,6 +793,7 @@ function MatchController:_handleSessionEnded(reason, sessionId)
 		end
 
 		if not isTournamentContinuation and not isChampionCeremony then
+			self:_unblockLobbyUiAfterMatch()
 			self:_restoreLobbyPresentationAfterMatch(reasonText ~= "" and reasonText or "MatchSessionEnded")
 		end
 
@@ -824,7 +808,9 @@ function MatchController:_handleSessionEnded(reason, sessionId)
 			self._transitionBusy = false
 		end
 
-		if isTournamentContinuation or reason == "Victory" then
+		if reasonText == "LegContinuation" then
+			-- Mid-match goals continue directly in-game; no popup/toast here.
+		elseif isTournamentContinuation or reason == "Victory" then
 			self:_notify("Goal! Match won.", "SUCCESS")
 		elseif isChampionCeremony then
 			self:_notify("Champion! Trophy ceremony started.", "SUCCESS")
@@ -852,6 +838,11 @@ function MatchController:_handleChampionCeremonyEnded(payload)
 		if self._championCeremonyEndedEvent then
 			self._championCeremonyEndedEvent:Fire(payload)
 		end
+
+		if SoccerCharactersController and SoccerCharactersController.ResetCollisionGroups then
+			SoccerCharactersController:ResetCollisionGroups()
+		end
+
 		RunService.Heartbeat:Wait()
 		if MatchPresentationController and MatchPresentationController._finalizeReturnCleanup then
 			pcall(function()
@@ -866,6 +857,8 @@ function MatchController:_handleChampionCeremonyEnded(payload)
 			MatchUIController:FadeFromBlack()
 			MatchUIController:EndMatchUi()
 		end
+
+		self:_unblockLobbyUiAfterMatch()
 
 		if UIController and UIController.ShowHUD then
 			UIController:ShowHUD()
@@ -943,6 +936,8 @@ function MatchController:FinalizeTournamentPreviewReturn(reason)
 			MatchUIController:FadeFromBlack()
 			MatchUIController:EndMatchUi()
 		end
+
+		self:_unblockLobbyUiAfterMatch()
 
 		if UIController and UIController.ShowHUD then
 			UIController:ShowHUD()

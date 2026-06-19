@@ -143,5 +143,6 @@ return table.freeze({
 		["Shoot"] = 20,
 		["Pass"] = 20,
 		["Dribble"] = 20,
+		["Stamina"] = 100,
 	},
 })

@@ -21,22 +21,29 @@ local Helpers = ReplicatedStorage.Shared.Helpers
 local Confetti = require(Helpers.Confetti)
 
 -- Controllers
+local Store = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Store)
 local DataCacheController = nil
 local NotificationController = nil
 local StoreController = nil
 local UIController = nil
+local MatchController = nil
 
 -- Services
 local SpinService = nil
 
 -- Constants
 local FramesConstants = require(StarterPlayer.StarterPlayerScripts.Client.Roact.Constants.FramesConstants)
+local BUSY_NOTIFY_COOLDOWN = 1.5
+local BUSY_NOTIFY_SPAM_RESET_CLICKS = 5
 
 -- SpinController
 local SpinController = Knit.CreateController({
 	Name = "SpinController",
 
 	Template = {},
+	Spinning = {},
+	BusyNotifyCount = {},
+	BusyNotifyLastShownAt = {},
 })
 
 --|| Local Functions ||--
@@ -76,11 +83,92 @@ local function setupSpinArea(instance: BasePart)
 	end)
 end
 
+local function IsMatchUiBlocked()
+	if not MatchController then
+		pcall(function()
+			MatchController = Knit.GetController("MatchController")
+		end)
+	end
+
+	if MatchController and MatchController.IsPlayingMatch then
+		local ok, isPlaying = pcall(function()
+			return MatchController:IsPlayingMatch()
+		end)
+		return ok and isPlaying == true
+	end
+
+	if UIController and UIController.IsUiBlockedForMatch then
+		local ok, isBlocked = pcall(function()
+			return UIController:IsUiBlockedForMatch()
+		end)
+		return ok and isBlocked == true
+	end
+
+	return false
+end
+
 --|| Functions ||--
 function SpinController:Spin(wheel: string)
-	local Wheel =
-		Players.LocalPlayer.PlayerGui:FindFirstChild("GameScreenGui").Spins.Content.Container[`{wheel}`].WheelHolder.Wheel
+	if IsMatchUiBlocked() then
+		return
+	end
+
+	local spinAmount = 0
+	local state = Store:getState()
+	if state and state.SpinsReducer and state.SpinsReducer.Spins then
+		spinAmount = state.SpinsReducer.Spins[wheel] or 0
+	end
+
+	if spinAmount <= 0 then
+		self.BusyNotifyCount[wheel] = (self.BusyNotifyCount[wheel] or 0) + 1
+		local now = os.clock()
+		local lastShownAt = self.BusyNotifyLastShownAt[wheel] or 0
+
+		if lastShownAt <= 0 or now - lastShownAt >= BUSY_NOTIFY_COOLDOWN then
+			NotificationController:Notify({
+				tag = `SpinNoSpins_{wheel}`,
+				text = self.Template.Messages.Notifications.No_More_Spins(wheel),
+				type = "ERROR",
+			})
+			self.BusyNotifyLastShownAt[wheel] = now
+			self.BusyNotifyCount[wheel] = 0
+		elseif self.BusyNotifyCount[wheel] >= BUSY_NOTIFY_SPAM_RESET_CLICKS then
+			self.BusyNotifyLastShownAt[wheel] = now
+			self.BusyNotifyCount[wheel] = 0
+		end
+
+		return
+	end
+
+	if self.Spinning[wheel] then
+		self.BusyNotifyCount[wheel] = (self.BusyNotifyCount[wheel] or 0) + 1
+		local now = os.clock()
+		local lastShownAt = self.BusyNotifyLastShownAt[wheel] or 0
+
+		if lastShownAt <= 0 or now - lastShownAt >= BUSY_NOTIFY_COOLDOWN then
+			NotificationController:Notify({
+				tag = `SpinBusy_{wheel}`,
+				text = self.Template.Messages.Notifications.Already_Spining,
+				type = "ERROR",
+			})
+			self.BusyNotifyLastShownAt[wheel] = now
+			self.BusyNotifyCount[wheel] = 0
+		elseif self.BusyNotifyCount[wheel] >= BUSY_NOTIFY_SPAM_RESET_CLICKS then
+			self.BusyNotifyLastShownAt[wheel] = now
+			self.BusyNotifyCount[wheel] = 0
+		end
+
+		return
+	end
+	self.Spinning[wheel] = true
+	self.BusyNotifyCount[wheel] = 0
+	self.BusyNotifyLastShownAt[wheel] = nil
+
+	local Wheel = getWheelGui(wheel)
 	if not Wheel then
+		self.Spinning[wheel] = nil
+		self.BusyNotifyCount[wheel] = nil
+		self.BusyNotifyLastShownAt[wheel] = nil
 		return NotificationController:Notify({
 			text = self.Template.Messages.Notifications.Wheel_Not_Found(wheel),
 			type = "ERROR",
@@ -89,6 +177,9 @@ function SpinController:Spin(wheel: string)
 
 	local Rewards = self.Template.Spins[wheel]
 	if not Rewards then
+		self.Spinning[wheel] = nil
+		self.BusyNotifyCount[wheel] = nil
+		self.BusyNotifyLastShownAt[wheel] = nil
 		return NotificationController:Notify({
 			text = self.Template.Messages.Notifications.Wheel_Not_Found(wheel),
 			type = "ERROR",
@@ -97,10 +188,16 @@ function SpinController:Spin(wheel: string)
 
 	local promise, targetRotation, notif = SpinService:Spin(wheel):await()
 	if promise == false then
+		self.Spinning[wheel] = nil
+		self.BusyNotifyCount[wheel] = nil
+		self.BusyNotifyLastShownAt[wheel] = nil
 		return warn("[SPIN CONTROLLER] An internal error occured while performing server side spin.")
 	end
 
 	if type(targetRotation) == "table" then
+		self.Spinning[wheel] = nil
+		self.BusyNotifyCount[wheel] = nil
+		self.BusyNotifyLastShownAt[wheel] = nil
 		return NotificationController:Notify(targetRotation)
 	end
 
@@ -121,6 +218,9 @@ function SpinController:Spin(wheel: string)
 
 	Confetti(50)
 	NotificationController:Notify(notif)
+	self.Spinning[wheel] = nil
+	self.BusyNotifyCount[wheel] = nil
+	self.BusyNotifyLastShownAt[wheel] = nil
 end
 
 function SpinController:Buy(name)
@@ -133,6 +233,9 @@ function SpinController:KnitInit()
 	StoreController = Knit.GetController("StoreController")
 	NotificationController = Knit.GetController("NotificationController")
 	UIController = Knit.GetController("UIController")
+	pcall(function()
+		MatchController = Knit.GetController("MatchController")
+	end)
 
 	SpinService = Knit.GetService("SpinService")
 

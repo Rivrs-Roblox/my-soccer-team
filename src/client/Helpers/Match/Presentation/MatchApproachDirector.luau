@@ -29,7 +29,6 @@ return function(MatchPresentationController, Context)
 	local MOVEMENT_TUNING = Constants.MOVEMENT_TUNING
 	local BALL_TRAVEL = Constants.BALL_TRAVEL
 	local CUTSCENE_ACTOR_COLLISION_GROUP = Constants.CUTSCENE_ACTOR_COLLISION_GROUP
-	local DEFAULT_TIME_SCALE = Constants.DEFAULT_TIME_SCALE
 	local APPROACH_FORWARD_PUSH_DISTANCE = Constants.APPROACH_FORWARD_PUSH_DISTANCE
 	local APPROACH_MIN_FORWARD_DISTANCE = Constants.APPROACH_MIN_FORWARD_DISTANCE
 	local APPROACH_NEAR_TARGET_THRESHOLD = Constants.APPROACH_NEAR_TARGET_THRESHOLD
@@ -383,10 +382,16 @@ function MatchPresentationController:_stepEnemyMovement(enemyModel, enemyState, 
 		ApplyPivot(enemyModel, MatchMotionMath.BuildFlatLookAtCFrame(enemyState.Position, liveLookTarget))
 
 		local runSpeed = 1.0
-		if moveSpeed >= 20 then
-			runSpeed = 1.14
+		if moveSpeed >= 70 then
+			runSpeed = 2.0
+		elseif moveSpeed >= 50 then
+			runSpeed = 1.75
+		elseif moveSpeed >= 35 then
+			runSpeed = 1.45
+		elseif moveSpeed >= 20 then
+			runSpeed = 1.20
 		elseif moveSpeed >= 14 then
-			runSpeed = 1.06
+			runSpeed = 1.10
 		end
 
 		self:_playMotionAnimation(enemyModel, "Run", runSpeed)
@@ -679,10 +684,6 @@ function MatchPresentationController:_runMovementSequence(payload, params)
 					)
 				end
 
-				if self.DebugFlow then
-					self:_debugFlow(payload, "approach forced QTE by boundary/timeout")
-				end
-
 				break
 			else
 				break
@@ -820,13 +821,7 @@ function MatchPresentationController:_handleApproachStarted(payload)
 		return
 	end
 
-	if self._debugSpawnHandoff then
-		self:_debugSpawnHandoff("approach-before-force-visible", actorModel)
-	end
 	ForceModelVisible(actorModel)
-	if self._debugSpawnHandoff then
-		self:_debugSpawnHandoff("approach-after-force-visible", actorModel)
-	end
 
 	self:_waitForPreviousVisualStep(payload)
 
@@ -836,7 +831,6 @@ function MatchPresentationController:_handleApproachStarted(payload)
 
 	local stepIndex = tonumber(payload.StepIndex) or 0
 	if stepIndex <= (tonumber(self.LastPreparedPreQteStepIndex) or 0) then
-		self:_debugFlow(payload, "skip stale/duplicate approach")
 		return
 	end
 
@@ -861,10 +855,6 @@ function MatchPresentationController:_handleApproachStarted(payload)
 	self:_hideNonCarrierEmbeddedBalls(self.ActiveActorSlot)
 
 	self.IsApproachBusy = true
-	self:_debugFlow(payload, "approach begin")
-	if self._debugSpawnHandoff then
-		self:_debugSpawnHandoff("approach-begin", actorModel)
-	end
 
 	local actorRoot = GetRootPart(actorModel)
 	local enemyRoot = GetRootPart(enemyModel)
@@ -906,9 +896,6 @@ function MatchPresentationController:_handleApproachStarted(payload)
 			return
 		end
 		RunService.RenderStepped:Wait()
-	end
-	if self._debugSpawnHandoff then
-		self:_debugSpawnHandoff("approach-after-idle-ground-settle", actorModel)
 	end
 	actorCurrentCFrame = self:_getActorCurrentCFrame(payload.ActorSlot, actorModel) or actorCurrentCFrame
 
@@ -1243,8 +1230,6 @@ function MatchPresentationController:_handleApproachStarted(payload)
 		self:_playMotionAnimation(enemyModel, "Idle", 1.0)
 	end
 
-	self:_debugFlow(payload, "confrontation close, waiting pre-qte settle")
-
 	self:_waitForPreQteReady(
 		payload,
 		actorModel,
@@ -1302,7 +1287,7 @@ function MatchPresentationController:_handleApproachStarted(payload)
 	self:_applyPreQteHoldPose(payload, actorModel, enemyModel)
 	self:_waitForSessionFrames(payload.SessionId, 2)
 
-	-- Hard freeze during QTE. Step3 overlap/shadow motion starts only after resolve,
+	-- QTE enters slow motion here. Step3 overlap/shadow motion starts only after resolve,
 	-- never while the QTE UI is waiting for player input.
 	self.QteLiveRunnerSlot = nil
 	self.QteLiveShadowEnemySlot = nil
@@ -1314,9 +1299,6 @@ function MatchPresentationController:_handleApproachStarted(payload)
 		stepIndex
 	)
 
-	self:_setTimeScale(DEFAULT_TIME_SCALE)
-
-	self:_debugFlow(payload, "pre-qte ready fired")
 	self:_notifyPresentationReady(payload.StepIndex, "PreQte")
 
 	self.IsApproachBusy = false

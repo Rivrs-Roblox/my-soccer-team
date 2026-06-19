@@ -4,6 +4,7 @@
 -- Reward = LeagueBase * QteMultiplier * RoundMultiplier.
 
 local TournamentRewardConfig = require(script.Parent.Parent.Parent.Data.Tournament.TournamentRewardConfig)
+local TournamentConfig = require(script.Parent.TournamentConfig)
 
 local TournamentRewardCalculator = {}
 
@@ -47,6 +48,22 @@ end
 
 local function ResolveQteMultiplier(stepIndex: number): number
 	return TournamentRewardConfig.QteMultiplierByStep[stepIndex] or 0
+end
+
+local function ResolveRequiredPlayerGoals(context): number
+	local requiredGoals = IsTable(context) and tonumber(context.RequiredPlayerGoals) or nil
+	if requiredGoals then
+		return math.max(1, math.floor(requiredGoals))
+	end
+
+	local roundId = IsTable(context) and tostring(context.RoundId or "") or ""
+	local roundGoalTargets = TournamentConfig.LiveMatch.RoundGoalTargets
+	local target = roundGoalTargets and roundGoalTargets[roundId]
+	if target then
+		return math.max(1, math.floor(tonumber(target.RequiredPlayerGoals) or 1))
+	end
+
+	return 1
 end
 
 local function HasSuccessfulStep(successfulSteps, stepIndex: number): boolean
@@ -114,6 +131,17 @@ function TournamentRewardCalculator.CalculateTotalReward(context): number
 	return total
 end
 
+function TournamentRewardCalculator.GetRequiredPlayerGoals(context): number
+	return ResolveRequiredPlayerGoals(context)
+end
+
+function TournamentRewardCalculator.CalculatePerGoalReward(context): number
+	local total = TournamentRewardCalculator.CalculateTotalReward(context)
+	local requiredGoals = ResolveRequiredPlayerGoals(context)
+
+	return math.max(0, math.floor(total / requiredGoals))
+end
+
 function TournamentRewardCalculator.BuildRoundPreview(context)
 	local total = TournamentRewardCalculator.CalculateTotalReward({
 		AreaId = IsTable(context) and context.AreaId or nil,
@@ -121,11 +149,16 @@ function TournamentRewardCalculator.BuildRoundPreview(context)
 		LeagueId = IsTable(context) and context.LeagueId or nil,
 		RoundId = IsTable(context) and context.RoundId or nil,
 		RoundIndex = IsTable(context) and context.RoundIndex or nil,
+		RequiredPlayerGoals = IsTable(context) and context.RequiredPlayerGoals or nil,
 		SuccessfulQteSteps = nil, -- nil means full 5-QTE clear preview.
 	})
+	local requiredGoals = ResolveRequiredPlayerGoals(context)
+	local rewardPerGoal = math.max(0, math.floor(total / requiredGoals))
 
 	return {
 		RewardWins = total,
+		RewardPerGoalWins = rewardPerGoal,
+		RequiredPlayerGoals = requiredGoals,
 		RewardText = tostring(total) .. " Wins",
 		Formula = "LeagueBase x QteMultiplier x RoundMultiplier",
 	}

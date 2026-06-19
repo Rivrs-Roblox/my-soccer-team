@@ -1,8 +1,10 @@
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local clientRoot = script:FindFirstAncestor("Client")
+local Sound = require(ReplicatedStorage.Packages.Sound)
 local NpcSupporterCheerConfig = require(clientRoot.Config.Match.NpcSupporterCheerConfig)
 
 local NpcSupporterCheerView = {}
@@ -17,32 +19,13 @@ local function debugLog(message: string)
 end
 
 local function playChampionApplause()
-	local soundId = tostring(NpcSupporterCheerConfig.ChampionApplauseSoundId or "")
-	if soundId == "" then
-		return
-	end
+	-- Play using the global Sound system
+	local sound = Sound:PlaySound("MISC_ChampionApplause")
 
-	local sound = Instance.new("Sound")
-	sound.Name = "ChampionApplause"
-	sound.SoundId = soundId
-	sound.Volume = tonumber(NpcSupporterCheerConfig.ChampionApplauseVolume) or 1.0
-	sound.Looped = NpcSupporterCheerConfig.ChampionApplauseLooped == true
-	sound.RollOffMode = Enum.RollOffMode.InverseTapered
-	sound.Parent = SoundService
-	sound:Play()
-
-	-- Bersihkan sound setelah selesai atau max 12 detik
-	task.delay(12, function()
-		if sound and sound.Parent then
-			sound:Stop()
-			sound:Destroy()
-		end
-	end)
-	if not NpcSupporterCheerConfig.ChampionApplauseLooped then
-		sound.Ended:Connect(function()
-			if sound and sound.Parent then
-				sound:Destroy()
-			end
+	-- Clean up sound after maximum 12 seconds
+	if sound then
+		task.delay(12, function()
+			Sound:DestroySound("MISC_ChampionApplause")
 		end)
 	end
 end
@@ -70,16 +53,33 @@ local function getRandomVariation(baseValue: number, variation: number): number
 	return (tonumber(baseValue) or 0) * RandomGenerator:NextNumber(1 - safeVariation, 1 + safeVariation)
 end
 
+local getModelPivot = nil
+do
+	local ok, Knit = pcall(function()
+		return require(ReplicatedStorage.Packages.Knit)
+	end)
+
+	local function getMatchTimeScale()
+		if ok and Knit then
+			local okCtrl, controller = pcall(function()
+				return Knit.GetController("MatchPresentationController")
+			end)
+			if okCtrl and controller and type(controller.TimeScale) == "number" then
+				return controller.TimeScale
+			end
+		end
+		return 1
+	end
+
+	NpcSupporterCheerView._getMatchTimeScale = getMatchTimeScale
+end
+
 local function getModelPivot(model: Model): CFrame?
 	local ok, pivot = pcall(function()
 		return model:GetPivot()
 	end)
 
-	if ok then
-		return pivot
-	end
-
-	return nil
+	return ok and pivot or nil
 end
 
 local function findRelativePath(root: Instance?, pathSegments: { string }): Instance?
@@ -338,7 +338,10 @@ local function playTween(state, targetPivot: CFrame, duration: number, easingDir
 		return false
 	end
 
-	state.CurrentTween = createJumpTween(state, targetPivot, duration, easingDirection)
+	local timeScale = NpcSupporterCheerView._getMatchTimeScale and NpcSupporterCheerView._getMatchTimeScale() or 1
+	local scaledDuration = duration / timeScale
+
+	state.CurrentTween = createJumpTween(state, targetPivot, scaledDuration, easingDirection)
 	state.CurrentTween:Play()
 
 	local playbackState = state.CurrentTween.Completed:Wait()
@@ -508,7 +511,8 @@ function NpcSupporterCheerView:_startAmbientLoop(model: Model, index: number, to
 				NpcSupporterCheerConfig.AmbientRestTimeMin or 0.15,
 				NpcSupporterCheerConfig.AmbientRestTimeMax or 0.45
 			)
-			if not waitWithStopCheck(restTime, state) then
+			local timeScale = NpcSupporterCheerView._getMatchTimeScale and NpcSupporterCheerView._getMatchTimeScale() or 1
+			if not waitWithStopCheck(restTime / timeScale, state) then
 				break
 			end
 		end
@@ -567,7 +571,8 @@ function NpcSupporterCheerView:_startGoalBurst(model: Model, index: number, toke
 				NpcSupporterCheerConfig.GoalRestTimeMin or 0.035,
 				NpcSupporterCheerConfig.GoalRestTimeMax or 0.09
 			)
-			if not waitWithStopCheck(restTime, state) then
+			local timeScale = NpcSupporterCheerView._getMatchTimeScale and NpcSupporterCheerView._getMatchTimeScale() or 1
+			if not waitWithStopCheck(restTime / timeScale, state) then
 				break
 			end
 		end
@@ -623,7 +628,8 @@ function NpcSupporterCheerView:_startChampionLoop(model: Model, index: number, t
 				NpcSupporterCheerConfig.ChampionRestTimeMin or 0.02,
 				NpcSupporterCheerConfig.ChampionRestTimeMax or 0.06
 			)
-			if not waitWithStopCheck(restTime, state) then
+			local timeScale = NpcSupporterCheerView._getMatchTimeScale and NpcSupporterCheerView._getMatchTimeScale() or 1
+			if not waitWithStopCheck(restTime / timeScale, state) then
 				break
 			end
 		end

@@ -21,13 +21,13 @@ local ENEMY_ZONE_STEP_BY_SLOT = {
 }
 
 local ENEMY_APPROACH_MARKERS_BY_SLOT = {
-	[3] = { "EnemyApproachPointLeft", "EnemyApproachPoint" },
-	[4] = { "EnemyApproachPointRight", "EnemyApproachPoint" },
+	[3] = { "EnemyApproachPoint" },
+	[4] = { "EnemyApproachPoint" },
 }
 
 local ENEMY_SPAWN_MARKERS_BY_SLOT = {
-	[3] = { "EnemySpawnPointLeft", "EnemyApproachPointLeft", "EnemySpawnPoint", "EnemyApproachPoint", "Area" },
-	[4] = { "EnemySpawnPointRight", "EnemyApproachPointRight", "EnemySpawnPoint", "EnemyApproachPoint", "Area" },
+	[3] = { "EnemySpawnPointLeft", "EnemySpawnPoint", "EnemyApproachPoint", "Area" },
+	[4] = { "EnemySpawnPointRight", "EnemySpawnPoint", "EnemyApproachPoint", "Area" },
 }
 
 local RECEIVE_MARKERS = {
@@ -65,25 +65,7 @@ local function FindFirstMarker(stepIndexOrName, markerNames)
 	return nil
 end
 
-function MatchZoneQuery.GetZoneNameByStep(stepIndex: number): string?
-	return ZONE_NAME_BY_STEP[tonumber(stepIndex or 0)]
-end
-
-function MatchZoneQuery.GetZoneStepByEnemySlot(enemySlot: number): number
-	return ENEMY_ZONE_STEP_BY_SLOT[tonumber(enemySlot or 1)] or 1
-end
-
-function MatchZoneQuery.GetZonesRoot(): Instance?
-	local runtimeRoot = MatchSceneQuery.GetRuntimeRoot()
-	return runtimeRoot and runtimeRoot:FindFirstChild("Zones")
-end
-
-function MatchZoneQuery.GetZoneFolder(stepIndexOrName): Instance?
-	local zonesRoot = MatchZoneQuery.GetZonesRoot()
-	if not zonesRoot then
-		return nil
-	end
-
+local function ResolveZoneName(stepIndexOrName): string?
 	local zoneName = stepIndexOrName
 	if typeof(stepIndexOrName) == "number" then
 		zoneName = ZONE_NAME_BY_STEP[stepIndexOrName]
@@ -93,16 +75,91 @@ function MatchZoneQuery.GetZoneFolder(stepIndexOrName): Instance?
 		return nil
 	end
 
-	return zonesRoot:FindFirstChild(zoneName)
+	return zoneName
 end
 
-function MatchZoneQuery.GetZoneMarker(stepIndexOrName, markerName: string): BasePart?
-	local zoneFolder = MatchZoneQuery.GetZoneFolder(stepIndexOrName)
-	if not zoneFolder then
+local function AppendZoneFolderCandidate(candidates, zoneName, zonesRoot)
+	local zoneFolder = zonesRoot and zonesRoot:FindFirstChild(zoneName)
+	if zoneFolder then
+		table.insert(candidates, zoneFolder)
+	end
+end
+
+local function GetZoneFolderCandidates(zoneName: string): { Instance }
+	local candidates = {}
+	local activeVariationId = MatchSceneQuery.GetActiveZoneVariationId and MatchSceneQuery.GetActiveZoneVariationId() or nil
+	local activeZonesRoot = MatchSceneQuery.GetZoneVariationChild and MatchSceneQuery.GetZoneVariationChild("Zones", activeVariationId)
+	AppendZoneFolderCandidate(candidates, zoneName, activeZonesRoot)
+
+	local runtimeRoot = MatchSceneQuery.GetRuntimeRoot()
+	AppendZoneFolderCandidate(candidates, zoneName, runtimeRoot and runtimeRoot:FindFirstChild("Zones"))
+
+	local availableVariationIds = MatchSceneQuery.GetAvailableZoneVariationIds and MatchSceneQuery.GetAvailableZoneVariationIds() or {}
+	for _, variationId in ipairs(availableVariationIds) do
+		if variationId ~= activeVariationId then
+			local fallbackZonesRoot = MatchSceneQuery.GetZoneVariationChild("Zones", variationId)
+			AppendZoneFolderCandidate(candidates, zoneName, fallbackZonesRoot)
+		end
+	end
+
+	return candidates
+end
+
+function MatchZoneQuery.GetZoneNameByStep(stepIndex: number): string?
+	return ZONE_NAME_BY_STEP[tonumber(stepIndex or 0)]
+end
+
+function MatchZoneQuery.GetZoneStepByEnemySlot(enemySlot: number): number
+	return ENEMY_ZONE_STEP_BY_SLOT[tonumber(enemySlot or 1)] or 1
+end
+
+function MatchZoneQuery.GetZonesRoot(): Instance?
+	local variationZonesRoot = MatchSceneQuery.GetZoneVariationChild("Zones")
+	if variationZonesRoot then
+		return variationZonesRoot
+	end
+
+	local runtimeRoot = MatchSceneQuery.GetRuntimeRoot()
+	local zonesRoot = runtimeRoot and runtimeRoot:FindFirstChild("Zones")
+	if zonesRoot then
+		return zonesRoot
+	end
+
+	local availableVariationIds = MatchSceneQuery.GetAvailableZoneVariationIds and MatchSceneQuery.GetAvailableZoneVariationIds() or {}
+	for _, variationId in ipairs(availableVariationIds) do
+		local fallbackZonesRoot = MatchSceneQuery.GetZoneVariationChild("Zones", variationId)
+		if fallbackZonesRoot then
+			return fallbackZonesRoot
+		end
+	end
+
+	return nil
+end
+
+function MatchZoneQuery.GetZoneFolder(stepIndexOrName): Instance?
+	local zoneName = ResolveZoneName(stepIndexOrName)
+	if not zoneName then
 		return nil
 	end
 
-	return GetBasePart(zoneFolder:FindFirstChild(markerName))
+	local candidates = GetZoneFolderCandidates(zoneName)
+	return candidates[1]
+end
+
+function MatchZoneQuery.GetZoneMarker(stepIndexOrName, markerName: string): BasePart?
+	local zoneName = ResolveZoneName(stepIndexOrName)
+	if not zoneName then
+		return nil
+	end
+
+	for _, zoneFolder in ipairs(GetZoneFolderCandidates(zoneName)) do
+		local marker = GetBasePart(zoneFolder:FindFirstChild(markerName))
+		if marker then
+			return marker
+		end
+	end
+
+	return nil
 end
 
 function MatchZoneQuery.GetZoneArea(stepIndexOrName): BasePart?

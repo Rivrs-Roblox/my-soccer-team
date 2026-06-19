@@ -14,7 +14,6 @@ local MatchService = nil
 
 local GOALKEEPER_SLOT = 5
 local LAST_DEFENDER_SLOT = 4
-local DEBUG_ENEMY_SPAWN = false
 
 local DEFENDER_LATERAL_SPAWN_DISTANCE = 30
 local DEFENDER_BACK_OFFSET = 6
@@ -334,9 +333,8 @@ function MatchEnemyController:_buildDefenderSpawnCFrame(slotNumber: number, slot
 
 	local spawnPosition = basePosition
 
-	if slotNumber == 3 or slotNumber == 4 then
-		-- Area 3 uses explicit left/right markers if available.
-		-- If marker exists, keep the model close to that marker.
+	if approachPoint then
+		-- Authored approach markers are the source of truth for variation layouts.
 		spawnPosition = basePosition + randomOffset
 	else
 		spawnPosition = basePosition
@@ -438,9 +436,6 @@ function MatchEnemyController:_spawnEnemySlot(areaConfig, areaId: string, sessio
 	}))
 
 	table.insert(self.SpawnedModels, model)
-	if DEBUG_ENEMY_SPAWN then
-		print("[MatchEnemyController] Spawned zone enemy:", model.Name, "area=", areaId, "slot=", slotNumber)
-	end
 end
 
 function MatchEnemyController:_spawnEnemiesForSession(payload)

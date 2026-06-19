@@ -5,6 +5,9 @@ local MatchConstants = require(ReplicatedStorage.Shared.Data.Match.MatchConstant
 
 local MatchSceneQuery = {}
 
+local activeZoneVariationId = nil
+local ZONE_VARIATION_FOLDER_NAMES = { "ZoneVariation", "ZoneVariations" }
+
 local function FindFirstChildByNames(parent: Instance?, names: { string }): Instance?
 	if not parent then
 		return nil
@@ -18,6 +21,15 @@ local function FindFirstChildByNames(parent: Instance?, names: { string }): Inst
 	end
 
 	return nil
+end
+
+local function NormalizeVariationId(variationId): string?
+	local normalized = tostring(variationId or "")
+	if normalized == "" then
+		return nil
+	end
+
+	return normalized
 end
 
 function MatchSceneQuery.GetMapRoot(): Instance?
@@ -34,12 +46,83 @@ function MatchSceneQuery.GetRuntimeRoot(): Instance?
 	return battleZoneRoot and battleZoneRoot:FindFirstChild(MatchConstants.RUNTIME_FOLDER_NAME)
 end
 
-function MatchSceneQuery.GetPlayerSpawn(): BasePart?
+function MatchSceneQuery.GetZoneVariationRoot(): Instance?
+	local runtimeRoot = MatchSceneQuery.GetRuntimeRoot()
+	return FindFirstChildByNames(runtimeRoot, ZONE_VARIATION_FOLDER_NAMES)
+end
+
+function MatchSceneQuery.GetAvailableZoneVariationIds(): { string }
+	local variationRoot = MatchSceneQuery.GetZoneVariationRoot()
+	local ids = {}
+	if not variationRoot then
+		return ids
+	end
+
+	for _, child in ipairs(variationRoot:GetChildren()) do
+		if child:IsA("Folder") then
+			table.insert(ids, child.Name)
+		end
+	end
+	table.sort(ids)
+
+	return ids
+end
+
+function MatchSceneQuery.GetZoneVariationFolder(variationId): Instance?
+	local variationRoot = MatchSceneQuery.GetZoneVariationRoot()
+	local normalized = NormalizeVariationId(variationId)
+	if not variationRoot or not normalized then
+		return nil
+	end
+
+	return variationRoot:FindFirstChild(normalized)
+end
+
+function MatchSceneQuery.SetActiveZoneVariationId(variationId): string?
+	local normalized = NormalizeVariationId(variationId)
+	if normalized and MatchSceneQuery.GetZoneVariationFolder(normalized) then
+		activeZoneVariationId = normalized
+	else
+		activeZoneVariationId = nil
+	end
+
+	return activeZoneVariationId
+end
+
+function MatchSceneQuery.GetActiveZoneVariationId(): string?
+	return activeZoneVariationId
+end
+
+function MatchSceneQuery.GetActiveZoneVariationFolder(): Instance?
+	return MatchSceneQuery.GetZoneVariationFolder(activeZoneVariationId)
+end
+
+function MatchSceneQuery.GetZoneVariationChild(childName: string, variationId): Instance?
+	local variationFolder = MatchSceneQuery.GetZoneVariationFolder(variationId or activeZoneVariationId)
+	return variationFolder and variationFolder:FindFirstChild(childName) or nil
+end
+
+function MatchSceneQuery.GetPlayerSpawn(variationId): BasePart?
+	local variationSpawn = MatchSceneQuery.GetZoneVariationChild(MatchConstants.PLAYER_SPAWN_NAME, variationId)
+	if variationSpawn and variationSpawn:IsA("BasePart") then
+		return variationSpawn
+	end
+
 	local runtimeRoot = MatchSceneQuery.GetRuntimeRoot()
 	local playerSpawn = runtimeRoot and runtimeRoot:FindFirstChild(MatchConstants.PLAYER_SPAWN_NAME)
 
 	if playerSpawn and playerSpawn:IsA("BasePart") then
 		return playerSpawn
+	end
+
+	if variationId == nil and activeZoneVariationId == nil then
+		local availableVariationIds = MatchSceneQuery.GetAvailableZoneVariationIds()
+		for _, fallbackVariationId in ipairs(availableVariationIds) do
+			local fallbackSpawn = MatchSceneQuery.GetZoneVariationChild(MatchConstants.PLAYER_SPAWN_NAME, fallbackVariationId)
+			if fallbackSpawn and fallbackSpawn:IsA("BasePart") then
+				return fallbackSpawn
+			end
+		end
 	end
 
 	return nil
@@ -103,13 +186,36 @@ function MatchSceneQuery.GetAllBattleZonePrompts(): { ProximityPrompt }
 	return prompts
 end
 
-function MatchSceneQuery.GetCompanionPivotsRoot(): Instance?
+function MatchSceneQuery.GetCompanionPivotsRoot(variationId): Instance?
+	local variationPivotsRoot = MatchSceneQuery.GetZoneVariationChild(MatchConstants.COMPANION_PIVOTS_FOLDER_NAME, variationId)
+	if variationPivotsRoot then
+		return variationPivotsRoot
+	end
+
 	local runtimeRoot = MatchSceneQuery.GetRuntimeRoot()
-	return runtimeRoot and runtimeRoot:FindFirstChild(MatchConstants.COMPANION_PIVOTS_FOLDER_NAME)
+	local pivotsRoot = runtimeRoot and runtimeRoot:FindFirstChild(MatchConstants.COMPANION_PIVOTS_FOLDER_NAME)
+	if pivotsRoot then
+		return pivotsRoot
+	end
+
+	if variationId == nil and activeZoneVariationId == nil then
+		local availableVariationIds = MatchSceneQuery.GetAvailableZoneVariationIds()
+		for _, fallbackVariationId in ipairs(availableVariationIds) do
+			local fallbackPivotsRoot = MatchSceneQuery.GetZoneVariationChild(
+				MatchConstants.COMPANION_PIVOTS_FOLDER_NAME,
+				fallbackVariationId
+			)
+			if fallbackPivotsRoot then
+				return fallbackPivotsRoot
+			end
+		end
+	end
+
+	return nil
 end
 
-function MatchSceneQuery.GetCompanionPivot(slotNumber: number): BasePart?
-	local pivotsRoot = MatchSceneQuery.GetCompanionPivotsRoot()
+function MatchSceneQuery.GetCompanionPivot(slotNumber: number, variationId): BasePart?
+	local pivotsRoot = MatchSceneQuery.GetCompanionPivotsRoot(variationId)
 	if not pivotsRoot then
 		return nil
 	end
@@ -206,12 +312,13 @@ function MatchSceneQuery.GetPathValidation(): { [string]: boolean }
 	local mapRoot = Workspace:FindFirstChild(MatchConstants.MAP_ROOT_NAME)
 	local battleZone = mapRoot and mapRoot:FindFirstChild(MatchConstants.BATTLE_ZONE_ROOT_NAME)
 	local runtime = battleZone and battleZone:FindFirstChild(MatchConstants.RUNTIME_FOLDER_NAME)
-	local playerSpawn = runtime and runtime:FindFirstChild(MatchConstants.PLAYER_SPAWN_NAME)
+	local playerSpawn = MatchSceneQuery.GetPlayerSpawn()
 
 	return {
 		MapRoot = mapRoot ~= nil,
 		BattleZone = battleZone ~= nil,
 		Runtime = runtime ~= nil,
+		ZoneVariation = MatchSceneQuery.GetZoneVariationRoot() ~= nil,
 		PlayerSpawn = playerSpawn ~= nil,
 		PlayerSpawnIsPart = if playerSpawn then playerSpawn:IsA("BasePart") else false,
 	}

@@ -111,6 +111,20 @@ local function setEnabled(instance: Instance, enabled: boolean)
 		return
 	end
 
+	if enabled ~= true then
+		if instance:IsA("ParticleEmitter") then
+			pcall(function()
+				instance:Clear()
+			end)
+		elseif instance:IsA("Trail") then
+			pcall(function()
+				instance:Clear()
+			end)
+		end
+
+		return
+	end
+
 	if enabled == true and instance:IsA("ParticleEmitter") then
 		local emitCount = instance:GetAttribute("EmitCount")
 			or instance:GetAttribute("BurstCount")
@@ -252,6 +266,29 @@ function MatchActionFxHelper.StopAllEffectsIn(root: Instance?): number
 	forceDisable(root)
 	for _, descendant in ipairs(root:GetDescendants()) do
 		forceDisable(descendant)
+	end
+
+	return count
+end
+
+function MatchActionFxHelper.ClearForceDisabled(root: Instance?): number
+	if not root then
+		return 0
+	end
+
+	local count = 0
+	local function clear(instance: Instance)
+		if instance:GetAttribute(FORCE_DISABLED_ATTRIBUTE) ~= nil then
+			pcall(function()
+				instance:SetAttribute(FORCE_DISABLED_ATTRIBUTE, nil)
+			end)
+			count += 1
+		end
+	end
+
+	clear(root)
+	for _, descendant in ipairs(root:GetDescendants()) do
+		clear(descendant)
 	end
 
 	return count

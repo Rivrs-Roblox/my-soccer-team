@@ -48,6 +48,28 @@ local function Boosts(_, hooks)
 			order = 3,
 		},
 		{
+			name = "x2 Stamina Boost",
+			duration = "30 Min",
+			icon = UI.x2_Stamina_Boost,
+			gradientColors = { "2fb6ff", "4740a6" },
+			strokeColor = "25edff",
+			buyBgColor = "22daff",
+			buyStrokeColor = "00fbff",
+			priceTextColor = "0a508c",
+			order = 4,
+		},
+		{
+			name = "x2 Endurance Boost",
+			duration = "30 Min",
+			icon = UI.x2_Endurance_Boost,
+			gradientColors = { "2fb6ff", "4740a6" },
+			strokeColor = "25edff",
+			buyBgColor = "22daff",
+			buyStrokeColor = "00fbff",
+			priceTextColor = "0a508c",
+			order = 5,
+		},
+		{
 			name = "x2 Wins Boost",
 			duration = "30 Min",
 			icon = UI.x2_Wins_Boost,
@@ -56,7 +78,7 @@ local function Boosts(_, hooks)
 			buyBgColor = "22daff",
 			buyStrokeColor = "00fbff",
 			priceTextColor = "0a508c",
-			order = 4,
+			order = 6,
 		},
 		{
 			name = "Boost Bundle",
@@ -67,7 +89,7 @@ local function Boosts(_, hooks)
 			buyBgColor = "ffd500",
 			buyStrokeColor = "fbff00",
 			priceTextColor = "903c00",
-			order = 5,
+			order = 7,
 		},
 	}
 

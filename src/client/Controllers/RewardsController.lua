@@ -22,6 +22,7 @@ local RewardsService = nil
 local NotificationController = nil
 local DataCacheController = nil
 local StoreController = nil
+local UIController = nil
 
 -- RewardsController
 local RewardsController = Knit.CreateController({
@@ -31,7 +32,14 @@ local RewardsController = Knit.CreateController({
 
 --|| Functions ||--
 function RewardsController:ClaimReward(id: number)
+	local actionKey = "ClaimReward_" .. tostring(id)
+	if not UIController:StartAction(actionKey) then
+		return
+	end
+
 	local promise, res = RewardsService:ClaimReward(id):await()
+	UIController:EndAction(actionKey)
+
 	if promise == false then
 		return warn("[REWARDS CONTROLLER] An internal error occurred while claming reward.")
 	end
@@ -77,6 +85,7 @@ function RewardsController:KnitInit()
 	NotificationController = Knit.GetController("NotificationController")
 	DataCacheController = Knit.GetController("DataCacheController")
 	StoreController = Knit.GetController("StoreController")
+	UIController = Knit.GetController("UIController")
 
 	self.Template = DataCacheController:GetFile("Template")
 

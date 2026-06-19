@@ -18,20 +18,30 @@ return function(params: table)
 		},
 	})
 
-	return Roact.createElement("ImageButton", {
+	return Roact.createElement("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		ScaleType = 3,
 		LayoutOrder = 8,
 		BackgroundColor3 = Color3.fromHex("fcfaff"),
+		BackgroundTransparency = 0,
+		BorderSizePixel = 0,
 		ZIndex = 2,
-
-		[Roact.Event.MouseButton1Click] = function()
-			Sound:PlaySound("SoundClick")
-			if params.onClick then
-				params.onClick()
-			end
-		end,
 	}, {
+		TouchTarget = Roact.createElement("ImageButton", {
+			Active = true,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			ImageTransparency = 1,
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 20,
+
+			[Roact.Event.MouseButton1Click] = function()
+				Sound:PlaySound("SoundClick")
+				if params.onClick then
+					params.onClick()
+				end
+			end,
+		}),
 		NameText = Roact.createElement("TextLabel", {
 			TextWrapped = true,
 			TextColor3 = Color3.fromHex("ffffff"),

@@ -5,7 +5,7 @@ local ZoneUtils = require(script.Parent.Parent.Training.ZoneUtils)
 local DribbleTrainingRuntime = {}
 DribbleTrainingRuntime.StatType = "Dribble"
 DribbleTrainingRuntime.Mode = "DribbleTraining"
-DribbleTrainingRuntime.SupportsWorldBallDribble = true
+DribbleTrainingRuntime.SupportsWorldBallDribble = false
 
 local NODE_NAMES = {
 	"Node01",
@@ -177,7 +177,7 @@ function DribbleTrainingRuntime.GetCycleData(totalCount: number, visualState)
 
 	local now = Workspace:GetServerTimeNow()
 	local startTime = visualState.ServerStartTime or now
-	local elapsed = math.max(0, now - startTime)
+	local elapsed = math.max(0, now - startTime) * (visualState.Level or 1)
 
 	local cycleDuration = GetCycleDuration()
 	local cycleIndex = math.floor(elapsed / cycleDuration)
@@ -191,6 +191,7 @@ function DribbleTrainingRuntime.GetCycleData(totalCount: number, visualState)
 	local phaseElapsed = 0
 	local phaseDuration = s.StartHoldDuration
 	local activeTargetPart = layout.StartPoint
+	local previousTargetPart = layout.StartPoint
 	local activeNodeIndex = 0
 
 	if phaseTime < s.StartHoldDuration then
@@ -198,6 +199,7 @@ function DribbleTrainingRuntime.GetCycleData(totalCount: number, visualState)
 		phaseElapsed = phaseTime
 		phaseDuration = s.StartHoldDuration
 		activeTargetPart = layout.StartPoint
+		previousTargetPart = layout.StartPoint
 		activeNodeIndex = 0
 	else
 		local nodeWindow = phaseTime - s.StartHoldDuration
@@ -208,6 +210,7 @@ function DribbleTrainingRuntime.GetCycleData(totalCount: number, visualState)
 		phaseElapsed = nodeWindow % s.NodeDuration
 		phaseDuration = s.NodeDuration
 		activeTargetPart = layout.Nodes[nodeIndex]
+		previousTargetPart = nodeIndex > 1 and layout.Nodes[nodeIndex - 1] or layout.StartPoint
 		activeNodeIndex = nodeIndex
 	end
 
@@ -222,6 +225,7 @@ function DribbleTrainingRuntime.GetCycleData(totalCount: number, visualState)
 		PhaseProgress = math.clamp(phaseElapsed / math.max(phaseDuration, 0.001), 0, 1),
 		PhaseTime = phaseTime,
 		ActiveTargetPart = activeTargetPart,
+		PreviousTargetPart = previousTargetPart,
 		ActiveNodeIndex = activeNodeIndex,
 		Token = string.format("%d:%s:%d", cycleIndex, phaseName, activeNodeIndex),
 	}
@@ -252,6 +256,7 @@ function DribbleTrainingRuntime.GetState(actorIndex: number, totalCount: number,
 			Mode = "DribbleTraining",
 			ActorIndex = actorIndex,
 			TargetPart = cycle.ActiveTargetPart,
+			PreviousTargetPart = cycle.PreviousTargetPart,
 			ExpectedAnimation = expectedAnimation,
 			LookAtPosition = lookAtPosition,
 			FacingMode = "Move",
@@ -267,28 +272,42 @@ function DribbleTrainingRuntime.GetState(actorIndex: number, totalCount: number,
 	end
 
 	if previousRunnerIndex and actorIndex == previousRunnerIndex then
-		local exitElapsed = cycle.PhaseTime
+		local baseExitElapsed = cycle.PhaseTime
+		if visualState.IsResting and visualState.PauseRealTime then
+			baseExitElapsed = baseExitElapsed + (Workspace:GetServerTimeNow() - visualState.PauseRealTime)
+		end
+
+		if visualState.MaxExitCycle ~= cycle.CycleIndex then
+			visualState.MaxExitCycle = cycle.CycleIndex
+			visualState.MaxExitElapsed = baseExitElapsed
+		else
+			visualState.MaxExitElapsed = math.max(visualState.MaxExitElapsed or 0, baseExitElapsed)
+		end
+
+		local exitElapsed = visualState.MaxExitElapsed
 		local exitingTarget, exitingAnimation = GetExitingTarget(layout, exitElapsed)
 
-		return {
-			Mode = "DribbleTraining",
-			ActorIndex = actorIndex,
-			TargetPart = exitingTarget,
-			ExpectedAnimation = exitingAnimation,
-			LookAtPosition = layout.QueuePoints[3].Position,
-			FacingMode = "Move",
-			PhaseName = "Exiting",
-			PhaseElapsed = exitElapsed,
-			PhaseDuration = s.Exit01Duration + s.Exit02Duration + s.RejoinDuration,
-			PhaseProgress = math.clamp(
-				exitElapsed / math.max(s.Exit01Duration + s.Exit02Duration + s.RejoinDuration, 0.001),
-				0,
-				1
-			),
-			CycleIndex = cycle.CycleIndex,
-			RunnerIndex = runnerIndex,
-			Layout = layout,
-		}
+		if exitingTarget then
+			return {
+				Mode = "DribbleTraining",
+				ActorIndex = actorIndex,
+				TargetPart = exitingTarget,
+				ExpectedAnimation = exitingAnimation,
+				LookAtPosition = layout.QueuePoints[3].Position,
+				FacingMode = "Move",
+				PhaseName = "Exiting",
+				PhaseElapsed = exitElapsed,
+				PhaseDuration = s.Exit01Duration + s.Exit02Duration + s.RejoinDuration,
+				PhaseProgress = math.clamp(
+					exitElapsed / math.max(s.Exit01Duration + s.Exit02Duration + s.RejoinDuration, 0.001),
+					0,
+					1
+				),
+				CycleIndex = cycle.CycleIndex,
+				RunnerIndex = runnerIndex,
+				Layout = layout,
+			}
+		end
 	end
 
 	for queueSlot = 1, 3 do
