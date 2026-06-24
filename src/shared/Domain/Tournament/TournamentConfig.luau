@@ -41,6 +41,61 @@ TournamentConfig.RoundOrder = table.freeze({
 })
 
 TournamentConfig.LiveMatch = table.freeze({
+	-- Timer start minute by aggregate gap (PlayerGoals - OpponentGoals).
+	-- Negative = player trailing, 0 = tied.
+	MinuteByGap = table.freeze({
+		[-3] = 60,
+		[-2] = 70,
+		[-1] = 80,
+		[0]  = 85,
+	}),
+	DefaultStartMinute = 85,
+
+	-- Minutes added per completed leg for clock continuation.
+	MinutesPerLeg = 2,
+
+	-- Fixed player comeback targets per round.
+	-- RequiredPlayerGoals is also the reward divisor for per-goal Wins.
+	RoundGoalTargets = table.freeze({
+		RoundOf16 = table.freeze({
+			Player = 0,
+			Opponent = 3,
+			RequiredPlayerGoals = 4,
+		}),
+		QuarterFinal = table.freeze({
+			Player = 0,
+			Opponent = 2,
+			RequiredPlayerGoals = 3,
+		}),
+		SemiFinal = table.freeze({
+			Player = 0,
+			Opponent = 1,
+			RequiredPlayerGoals = 2,
+		}),
+		Final = table.freeze({
+			Player = 0,
+			Opponent = 0,
+			RequiredPlayerGoals = 1,
+		}),
+	}),
+
+	-- Possible initial aggregate scores per round (Player, Opponent).
+	-- Player never starts ahead — only tied or trailing.
+	InitialScores = table.freeze({
+		-- Imbang (1 leg needed)
+		{ Player = 0, Opponent = 0 },
+		{ Player = 1, Opponent = 1 },
+		{ Player = 2, Opponent = 2 },
+		{ Player = 3, Opponent = 3 },
+		-- Trailing by 1 (2 legs needed)
+		{ Player = 0, Opponent = 1 },
+		-- Trailing by 2 (3 legs needed)
+		{ Player = 0, Opponent = 2 },
+		-- Trailing by 3 (4 legs needed)
+		{ Player = 0, Opponent = 3 },
+	}),
+
+	-- Legacy fields kept for NPC match simulation
 	MinMinute = 85,
 	MaxMinute = 90,
 	DrawScores = table.freeze({

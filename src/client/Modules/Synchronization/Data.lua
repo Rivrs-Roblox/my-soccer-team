@@ -74,6 +74,7 @@ function Data:Init()
 		Store:dispatch(PlayerActions.setShoot(data.Stats.Shoot))
 		Store:dispatch(PlayerActions.setPass(data.Stats.Pass))
 		Store:dispatch(PlayerActions.setDribble(data.Stats.Dribble))
+		Store:dispatch(PlayerActions.setStamina(data.Stats.Stamina))
 
 		Store:dispatch(SpinsActions.setSpins("Free", data.Spins.Free))
 		Store:dispatch(SpinsActions.setSpins("Premium", data.Spins.Premium))
@@ -317,12 +318,12 @@ function Data:Init()
 	end)
 
 	TradeService.RequestSent:Connect(function(receiver: Player)
-		UIActions.resetCurrentUI()
+		Store:dispatch(UIActions.resetCurrentUI())
 		Store:dispatch(TradeActions.setOutgoingRequest(receiver))
 	end)
 
 	TradeService.RequestReceived:Connect(function(sender: Player)
-		UIActions.resetCurrentUI()
+		Store:dispatch(UIActions.resetCurrentUI())
 		Store:dispatch(TradeActions.setIncomingRequest(sender))
 		Sound:PlaySound("UI_Trade_Requested")
 	end)
@@ -406,6 +407,8 @@ function Data:Init()
 			Store:dispatch(PlayerActions.setPass(statValue))
 		elseif statType == "Dribble" then
 			Store:dispatch(PlayerActions.setDribble(statValue))
+		elseif statType == "Stamina" then
+			Store:dispatch(PlayerActions.setStamina(statValue))
 		end
 	end)
 

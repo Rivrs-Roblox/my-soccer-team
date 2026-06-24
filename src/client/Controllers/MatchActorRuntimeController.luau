@@ -191,6 +191,7 @@ function MatchActorRuntimeController:_getOrCreateLocalMatchState(ownerPlayer: Pl
 		Slots = {},
 		Started = false,
 		Paused = false,
+		TimeScale = 1,
 	}
 
 	self.LocalMatchStates[ownerPlayer] = state
@@ -216,11 +217,13 @@ function MatchActorRuntimeController:_registerLocalMatchSlot(ownerPlayer: Player
 	if slotState then
 		slotState.Model = model
 		slotState.Root = root
+		slotState.OwnerState = state
 		return slotState
 	end
 
 	slotState = {
 		SlotNumber = slotNumber,
+		OwnerState = state,
 		Model = model,
 		Root = root,
 		OriginalCFrame = model:GetPivot(),
@@ -248,11 +251,14 @@ function MatchActorRuntimeController:_playSlotAnimation(slotState, requestedAnim
 
 	local animationName = requestedAnimation or "Idle"
 	local speed = 1
+	local ownerState = slotState.OwnerState
+	local timeScale = ownerState and tonumber(ownerState.TimeScale) or 1
 
 	if isLocomotionAnimation(animationName) then
-		-- Tactical movement can be slow, but locomotion playback must not look slow-motion.
+		-- Tactical movement normally keeps locomotion readable; QTE can scale this down.
 		speed = MatchAnimationHelper.ComputeRunSpeed(slotState.MoveSpeed)
 	end
+	speed *= math.max(timeScale, 0.03)
 
 	local animationState =
 		MatchAnimationHelper.Play(self.LocalMatchAnimationStates, slotState.Model, animationName, { speed = speed })
@@ -322,11 +328,12 @@ function MatchActorRuntimeController:_ensureLocalMatchUpdateLoop()
 				local currentPos = currentCFrame.Position
 				local targetPos = targetCFrame.Position
 
+				local timeScale = math.max(tonumber(state.TimeScale) or 1, 0)
 				local nextPos, reached = stepFlatTowards(
 					currentPos,
 					targetPos,
 					slotState.MoveSpeed or LOCAL_MATCH_DEFAULT_MOVE_SPEED,
-					deltaTime
+					deltaTime * timeScale
 				)
 
 				local moveLook = resolveSlotLookVector(slotState, currentPos, nextPos, targetCFrame, reached)
@@ -477,6 +484,7 @@ function MatchActorRuntimeController:BeginLocalMatchIsolation(player: Player, co
 
 	state.Started = true
 	state.Paused = false
+	state.TimeScale = 1
 
 	for index, companionModel in ipairs(ownedCompanions) do
 		local targetSlotNumber = resolvedPivotOrder[index] or (index + 1)
@@ -624,6 +632,27 @@ function MatchActorRuntimeController:ResumeLocalMatch(player: Player)
 					track:AdjustSpeed(1)
 				end
 			end
+		end
+	end
+
+	return true
+end
+
+function MatchActorRuntimeController:SetLocalMatchTimeScale(player: Player, scale: number)
+	if not player then
+		return false
+	end
+
+	local state = self.LocalMatchStates[player]
+	if not state then
+		return false
+	end
+
+	state.TimeScale = math.max(tonumber(scale) or 1, 0.01)
+
+	for _, slotState in pairs(state.Slots) do
+		if slotState.Model and slotState.Model.Parent then
+			self:_playSlotAnimation(slotState, slotState.ExpectedAnimation or "Idle")
 		end
 	end
 

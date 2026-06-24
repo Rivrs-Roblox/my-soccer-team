@@ -42,6 +42,30 @@ function AutoController:RequestAutoTraining(statType: string)
 		return
 	end
 
+	local tournamentController = nil
+	pcall(function()
+		tournamentController = Knit.GetController("TournamentController")
+	end)
+	if tournamentController and tournamentController.IsPreviewOpen and tournamentController:IsPreviewOpen() then
+		return
+	end
+
+	local monetizationController = nil
+	pcall(function()
+		monetizationController = Knit.GetController("MonetizationController")
+	end)
+	if monetizationController and monetizationController.IsPurchasePromptActive and monetizationController:IsPurchasePromptActive() then
+		return
+	end
+
+	local matchController = nil
+	pcall(function()
+		matchController = Knit.GetController("MatchController")
+	end)
+	if matchController and matchController.IsPlayingMatch and matchController:IsPlayingMatch() then
+		return
+	end
+
 	if not self:CanSendRequest() then
 		return
 	end

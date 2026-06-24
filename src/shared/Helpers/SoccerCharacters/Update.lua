@@ -42,6 +42,10 @@ local function UpdateSoccerCharacters(
 			continue
 		end
 
+		if player:GetAttribute("IsInMatch") == true then
+			continue
+		end
+
 		local accessoriesInventory = AccessoriesByPlayer[player] or {}
 
 		if Functions.GetTableAmount(v) > 0 then
@@ -82,6 +86,16 @@ local function UpdateSoccerCharacters(
 
 					SoccerCharacterModel.Parent = SoccerCharacterInstances
 					Functions.EquipAccessory(SoccerCharacterModel, Data, accessoriesInventory)
+
+					local MatchCompanionVisualController = nil
+					pcall(function()
+						local ReplicatedStorage = game:GetService("ReplicatedStorage")
+						local Knit = require(ReplicatedStorage.Packages.Knit)
+						MatchCompanionVisualController = Knit.GetController("MatchCompanionVisualController")
+					end)
+					if MatchCompanionVisualController and player:GetAttribute("IsInMatch") == true then
+						MatchCompanionVisualController:SetOwnerVisualHidden(player, true, true)
+					end
 
 					table.insert(RaycastExcludeModels, SoccerCharacterModel)
 				end
@@ -201,7 +215,19 @@ local function UpdateSoccerCharacters(
 					CharHumanoid.JumpPower = Humanoid.JumpPower
 					CharHumanoid.UseJumpPower = Humanoid.UseJumpPower
 
-					if distanceToTarget > 1.5 then
+					if distanceToTarget > 30 then
+						-- Teleport instantly if too far to prevent walking from match area
+						local playerRotation = Info.Target.CFrame - Info.Target.CFrame.Position
+						local Offset = -(Grid.Model:GetAttribute("Rotation") or 0)
+						local targetRotation = playerRotation
+							* CFrame.Angles(
+								math.rad(Grid.Model:GetAttribute("XRotation") or 0),
+								math.rad(Offset or 90),
+								0
+							)
+						Grid.Model:PivotTo(CFrame.new(AdjustedTargetPosition) * targetRotation)
+						Info.Arrived = true
+					elseif distanceToTarget > 1.5 then
 						-- Moving...
 						CharHumanoid:MoveTo(AdjustedTargetPosition)
 						Info.Arrived = false

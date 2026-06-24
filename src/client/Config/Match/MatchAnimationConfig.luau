@@ -4,10 +4,11 @@ local MatchAnimationConfig = {
 	RunSpeed = {
 		-- Decouple locomotion animation from tactical movement speed.
 		-- Low movement speed should still look like a normal run, not slow motion.
-		ReferenceMoveSpeed = 16,
+		-- ReferenceMoveSpeed dinaikkan sesuai rata-rata speed approach baru (~40 stud/s saat sprint jauh).
+		ReferenceMoveSpeed = 40,
 		Min = 1.0,
-		Max = 1.18,
-		Sprint = 1.12,
+		Max = 2.0,   -- dinaikkan agar animasi ikut secara proporsional saat sprint 2x lebih cepat
+		Sprint = 1.8,
 	},
 
 	Candidates = {

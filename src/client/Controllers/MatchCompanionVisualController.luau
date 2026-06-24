@@ -18,6 +18,22 @@ local CoachesController = nil
 
 local maskStateByInstance = setmetatable({}, { __mode = "k" })
 
+local OWNER_EFFECT_CLASSES = {
+	ParticleEmitter = true,
+	Trail = true,
+	Beam = true,
+	Highlight = true,
+	Fire = true,
+	Smoke = true,
+	Sparkles = true,
+	PointLight = true,
+	SpotLight = true,
+	SurfaceLight = true,
+}
+
+local OWNER_EFFECT_CACHED_ENABLED_ATTRIBUTE = "MatchOwnerEffectCachedEnabled"
+local OWNER_EFFECT_HIDDEN_ATTRIBUTE = "MatchOwnerEffectHidden"
+
 local MatchCompanionVisualController = Knit.CreateController({
 	Name = "MatchCompanionVisualController",
 
@@ -67,6 +83,10 @@ local function cacheVisualState(instance: Instance)
 		return
 	end
 
+	if instance:GetAttribute("MatchFallbackMaskHidden") == true then
+		return
+	end
+
 	if instance:IsA("BasePart") then
 		maskStateByInstance[instance] = {
 			ClassName = "BasePart",
@@ -80,7 +100,7 @@ local function cacheVisualState(instance: Instance)
 			ClassName = instance.ClassName,
 			Transparency = instance.Transparency,
 		}
-	elseif instance:IsA("BillboardGui") or instance:IsA("SurfaceGui") or instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Highlight") then
+	elseif instance:IsA("BillboardGui") or instance:IsA("SurfaceGui") then
 		maskStateByInstance[instance] = {
 			ClassName = instance.ClassName,
 			Enabled = instance.Enabled,
@@ -102,6 +122,10 @@ local function applyFallbackMask(root: Instance?, hidden: boolean)
 				instance.CanCollide = false
 				instance.CanTouch = false
 				instance.CanQuery = false
+				
+				pcall(function()
+					instance:SetAttribute("MatchFallbackMaskHidden", true)
+				end)
 			else
 				local cachedState = maskStateByInstance[instance]
 				if cachedState then
@@ -113,11 +137,19 @@ local function applyFallbackMask(root: Instance?, hidden: boolean)
 				else
 					instance.LocalTransparencyModifier = 0
 				end
+				
+				pcall(function()
+					instance:SetAttribute("MatchFallbackMaskHidden", nil)
+				end)
 			end
 		elseif instance:IsA("Decal") or instance:IsA("Texture") then
 			if hidden then
 				cacheVisualState(instance)
 				instance.Transparency = 1
+				
+				pcall(function()
+					instance:SetAttribute("MatchFallbackMaskHidden", true)
+				end)
 			else
 				local cachedState = maskStateByInstance[instance]
 				if cachedState then
@@ -126,11 +158,19 @@ local function applyFallbackMask(root: Instance?, hidden: boolean)
 				else
 					instance.Transparency = 0
 				end
+				
+				pcall(function()
+					instance:SetAttribute("MatchFallbackMaskHidden", nil)
+				end)
 			end
-		elseif instance:IsA("BillboardGui") or instance:IsA("SurfaceGui") or instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Highlight") then
+		elseif instance:IsA("BillboardGui") or instance:IsA("SurfaceGui") then
 			if hidden then
 				cacheVisualState(instance)
 				instance.Enabled = false
+				
+				pcall(function()
+					instance:SetAttribute("MatchFallbackMaskHidden", true)
+				end)
 			else
 				local cachedState = maskStateByInstance[instance]
 				if cachedState then
@@ -139,12 +179,72 @@ local function applyFallbackMask(root: Instance?, hidden: boolean)
 				else
 					instance.Enabled = true
 				end
+				
+				pcall(function()
+					instance:SetAttribute("MatchFallbackMaskHidden", nil)
+				end)
 			end
 		end
 	end
 
 	applyToInstance(root)
 
+	for _, descendant in ipairs(root:GetDescendants()) do
+		applyToInstance(descendant)
+	end
+end
+
+local function applyOwnerEffectHidden(root: Instance?, hidden: boolean)
+	if not root then
+		return
+	end
+
+	local function applyToInstance(instance: Instance)
+		if not OWNER_EFFECT_CLASSES[instance.ClassName] then
+			return
+		end
+
+		if hidden then
+			local alreadyHidden = instance:GetAttribute(OWNER_EFFECT_HIDDEN_ATTRIBUTE) == true
+			if not alreadyHidden then
+				local ok, enabled = pcall(function()
+					return (instance :: any).Enabled
+				end)
+
+				local isEnabled = ok and enabled == true or false
+				pcall(function()
+					instance:SetAttribute(OWNER_EFFECT_CACHED_ENABLED_ATTRIBUTE, isEnabled)
+					instance:SetAttribute(OWNER_EFFECT_HIDDEN_ATTRIBUTE, true)
+				end)
+			end
+
+			pcall(function()
+				(instance :: any).Enabled = false
+			end)
+
+			if instance:IsA("ParticleEmitter") or instance:IsA("Trail") then
+				pcall(function()
+					(instance :: any):Clear()
+				end)
+			end
+		else
+			local wasHidden = instance:GetAttribute(OWNER_EFFECT_HIDDEN_ATTRIBUTE) == true
+			if wasHidden then
+				local cachedEnabled = instance:GetAttribute(OWNER_EFFECT_CACHED_ENABLED_ATTRIBUTE) == true
+				pcall(function()
+					(instance :: any).Enabled = cachedEnabled
+				end)
+			end
+
+			pcall(function()
+				instance:SetAttribute("MatchForceDisabledActionFx", nil)
+				instance:SetAttribute(OWNER_EFFECT_CACHED_ENABLED_ATTRIBUTE, nil)
+				instance:SetAttribute(OWNER_EFFECT_HIDDEN_ATTRIBUTE, nil)
+			end)
+		end
+	end
+
+	applyToInstance(root)
 	for _, descendant in ipairs(root:GetDescendants()) do
 		applyToInstance(descendant)
 	end
@@ -184,12 +284,19 @@ local function setVisualHidden(maskModule, model: Instance?, hidden: boolean)
 		return
 	end
 
-	if maskModule and type(maskModule.SetHidden) == "function" then
-		maskModule.SetHidden(model, hidden)
-		return
+	if hidden then
+		applyOwnerEffectHidden(model, true)
 	end
 
-	applyFallbackMask(model, hidden)
+	if maskModule and type(maskModule.SetHidden) == "function" then
+		maskModule.SetHidden(model, hidden)
+	else
+		applyFallbackMask(model, hidden)
+	end
+
+	if not hidden then
+		applyOwnerEffectHidden(model, false)
+	end
 end
 
 -- // [ CONTROLLER RESOLVERS ] // --

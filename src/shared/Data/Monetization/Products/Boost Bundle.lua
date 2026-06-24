@@ -16,6 +16,8 @@ return table.freeze({
 			BoostService:AddBoost(Players:GetPlayerByUserId(userId), "4", 10)
 			BoostService:AddBoost(Players:GetPlayerByUserId(userId), "5", 10)
 			BoostService:AddBoost(Players:GetPlayerByUserId(userId), "6", 10)
+			BoostService:AddBoost(Players:GetPlayerByUserId(userId), "7", 10)
+			BoostService:AddBoost(Players:GetPlayerByUserId(userId), "8", 10)
 		end,
 		["RestrictedRegionCanBuy"] = true,
 	},

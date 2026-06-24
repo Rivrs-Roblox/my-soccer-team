@@ -14,6 +14,10 @@ local EquipAccessory = require(Helpers.SoccerCharacters.EquipAccessory)
 local FormatNumber = require(Helpers.Numbers.FormatNumber)
 local SetInterval = require(Helpers.SetInterval)
 local Tween = require(Helpers.Tween)
+local GetFinalChanceWeights = require(Helpers.Chances.GetFinalChanceWeights)
+local GetLuckChanceMultiplier = require(Helpers.Chances.GetLuckChanceMultiplier)
+local FormatChance = require(Helpers.Chances.FormatChance)
+local GlobalConfig = require(ReplicatedStorage.Shared.Data.GlobalConfig)
 local Store = require(StarterPlayer.StarterPlayerScripts.Client.Rodux.Store)
 
 -- Knit Services
@@ -76,13 +80,19 @@ function AccessoryController:UpdateChestUI(instance: Model)
 		end
 	end
 
+	-- Compute final chances with luck multiplier
+	local state = Store:getState()
+	local gamepasses = state.MonetizationReducer and state.MonetizationReducer.Gamepasses or {}
+	local chanceMultiplier = GetLuckChanceMultiplier(gamepasses, GlobalConfig.LuckMultipliers)
+	local finalChances = GetFinalChanceWeights(packData.Chances, chanceMultiplier)
+
 	for i, rarity in ipairs(order) do
-		local chance = packData.Chances[rarity]
+		local chance = finalChances[rarity]
 		if chance and chance > 0 then
 			local newRarity = self.TemplateRarity:Clone()
 			newRarity.Name = rarity
 			newRarity.LayoutOrder = i
-			newRarity.Number.Text = `{chance}%`
+			newRarity.Number.Text = FormatChance(chance)
 			newRarity.Rarity.Text = rarity
 			newRarity.Parent = self.ListContainer
 

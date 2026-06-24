@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 
 -- Knit packages
 local Knit = require(ReplicatedStorage.Packages.Knit)
+local Sound = require(ReplicatedStorage.Packages.Sound)
 
 -- Helpers
 local Helpers = ReplicatedStorage.Shared.Helpers
@@ -18,6 +19,7 @@ local TrainingUpdate = require(Helpers.Training.Update)
 local Settings = require(Helpers.Training.Settings)
 local GetTableAmount = require(Helpers.Table.GetTableAmount)
 local GetAngleDistance = require(Helpers.Math.GetAngleDistance)
+local FormatNumber = require(Helpers.Numbers.FormatNumber)
 
 -- Knit Services
 local TrainingService
@@ -27,8 +29,13 @@ local TeleportService
 local DataCacheController
 
 local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local trainingOptionsGui = playerGui:WaitForChild("TrainingOptionsGui")
+
 local TRAINING_BALL_TEMPLATE_NAME = "TrainingMatchBall"
 local TRAINING_BALL_RELEASE_MARKER = "BallRelease"
+local TRAINING_SHOOT_SOUND_NAME = "MISC_Shoot_Training"
+local TRAINING_PASS_SOUND_NAME = "MISC_Pass_Training"
 local DEFAULT_RELEASE_FALLBACK_SECONDS = 0.9
 local FALLBACK_ACTION_FX_ATTACHMENT_NAME = "TrainingActionFxAttachment"
 local FALLBACK_ACTION_FX_NAME = "TrainingActionFx"
@@ -39,6 +46,8 @@ local function DisconnectConnection(connection)
 	end
 	return nil
 end
+
+local currentTrainingLevel = 1
 
 local function ForEachBasePart(root: Instance?, callback)
 	if not root or type(callback) ~= "function" then
@@ -144,6 +153,31 @@ local function GetEmbeddedBallPrimaryPart(actorModel: Model?): BasePart?
 	end
 
 	return selectedPart
+end
+
+local function GetReplicatedCharacterSoundEmitterPart(targetPlayer: Player?): BasePart?
+	local character = targetPlayer and targetPlayer.Character
+	if not character then
+		return nil
+	end
+
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		return root
+	end
+
+	local rightFoot = character:FindFirstChild("RightFoot")
+		or character:FindFirstChild("Right Leg")
+		or character:FindFirstChild("RightLowerLeg")
+	if rightFoot and rightFoot:IsA("BasePart") then
+		return rightFoot
+	end
+
+	if character.PrimaryPart and character.PrimaryPart:IsA("BasePart") then
+		return character.PrimaryPart
+	end
+
+	return character:FindFirstChildWhichIsA("BasePart", true)
 end
 
 local function SetEffectEnabled(root: Instance?, enabled: boolean)
@@ -354,6 +388,68 @@ local TrainingController = Knit.CreateController({
 	TrainingActorKickFxTokens = {},
 })
 
+function TrainingController:_updateTrainingOptionsSelection()
+	local center = trainingOptionsGui.Frame.BottomFrame.Center
+	for level = 1, 3 do
+		local frame = center:FindFirstChild(tostring(level))
+		if frame then
+			local arrow = frame:FindFirstChild("Arrow")
+			if arrow then
+				arrow.Visible = (level == currentTrainingLevel)
+			end
+		end
+	end
+end
+
+function TrainingController:_setupTrainingOptionsUI(statType)
+	currentTrainingLevel = 1
+	self:_updateTrainingOptionsSelection()
+
+	self.CurrentTrainingCosts = {}
+
+	task.spawn(function()
+		local DataService = Knit.GetService("DataService")
+		local success, data = DataService:GetData():await()
+		local areaId = data and data.Areas and data.Areas.Current or "Area01"
+
+		local areaData = self.Template.Training[areaId]
+		local statData = areaData and areaData[statType]
+		if not statData then
+			return
+		end
+
+		local center = trainingOptionsGui.Frame.BottomFrame.Center
+		for level = 1, 3 do
+			local frame = center:FindFirstChild(tostring(level))
+			if frame then
+				local button = frame:FindFirstChild("Button", true)
+				if button then
+					local top = button:FindFirstChild("Top", true)
+					local bottom = button:FindFirstChild("Bottom", true)
+
+					if top and top:FindFirstChild("RewardText", true) then
+						top.RewardText.Text = "+" .. FormatNumber(statData[level].RewardPerTick) .. "/s"
+					end
+
+					if bottom and bottom:FindFirstChild("StaminaCostText", true) then
+						bottom.Visible = true
+						local cost = statData[level].StaminaCostPerTick
+						self.CurrentTrainingCosts[level] = cost
+						bottom.StaminaCostText.Text = FormatNumber(cost) .. "/s"
+
+						local maxStamina = data and data.Stats and data.Stats.Stamina or 100
+						if maxStamina < cost then
+							bottom.StaminaCostText.TextColor3 = Color3.fromRGB(255, 0, 0)
+						else
+							bottom.StaminaCostText.TextColor3 = Color3.fromRGB(255, 255, 255)
+						end
+					end
+				end
+			end
+		end
+	end)
+end
+
 function TrainingController:_stripScripts(model: Model)
 	for _, descendant in ipairs(model:GetDescendants()) do
 		if descendant:IsA("BaseScript") then
@@ -397,53 +493,6 @@ function TrainingController:_findAnimator(model: Model): Animator?
 	animator = Instance.new("Animator")
 	animator.Parent = parent
 	return animator
-end
-function TrainingController:_loadTrack(animator: Animator, animationId: string)
-	local animation = Instance.new("Animation")
-	animation.AnimationId = animationId
-	local track = animator:LoadAnimation(animation)
-	animation:Destroy()
-	return track
-end
-
-function TrainingController:_ensureProxyAnimations(stateTable, animator, model: Model)
-	if stateTable.Animations and stateTable.Animations.Animator == animator then
-		return
-	end
-
-	stateTable.Animations = {
-		Animator = animator,
-		Idle = self:_loadTrack(animator, self.TrainingConfig.Animations.DefaultIdle),
-		Run = self:_loadTrack(animator, self.TrainingConfig.Animations.DefaultRun),
-		Jump = self:_loadTrack(animator, self.TrainingConfig.Animations.DefaultJump),
-		Fall = self:_loadTrack(animator, self.TrainingConfig.Animations.DefaultFall),
-	}
-
-	local shootObject = model:FindFirstChild("Shoot", true)
-	if shootObject and shootObject:IsA("Animation") and shootObject.AnimationId ~= "" then
-		stateTable.Animations.Shoot = animator:LoadAnimation(shootObject)
-	else
-		stateTable.Animations.Shoot = self:_loadTrack(animator, self.TrainingConfig.Animations.DefaultShoot)
-	end
-end
-
-function TrainingController:_playProxyAnimation(stateTable, expectedAnimation: string)
-	if not stateTable.Animations then
-		return
-	end
-
-	if stateTable.CurrentAnimation == expectedAnimation then
-		return
-	end
-
-	if stateTable.CurrentAnimation and stateTable.Animations[stateTable.CurrentAnimation] then
-		stateTable.Animations[stateTable.CurrentAnimation]:Stop(0.1)
-	end
-
-	if stateTable.Animations[expectedAnimation] then
-		stateTable.Animations[expectedAnimation]:Play(0.1)
-		stateTable.CurrentAnimation = expectedAnimation
-	end
 end
 
 function TrainingController:_applyRootCFrame(root: Instance, cf: CFrame)
@@ -989,28 +1038,26 @@ function TrainingController:_setActorDribbleFxEnabled(
 	end
 end
 
-function TrainingController:_pulseActorReleaseFx(
+function TrainingController:_emitTrainingActorReleaseFx(
 	player: Player,
 	actorIndex: number,
-	actorModel: Model?,
-	duration: number?,
-	emitCount: number?
+	duration: number,
+	emitCount: number?,
+	visualState
 )
-	if not player or not actorIndex or not actorModel then
-		return
-	end
-
 	local playerTokens = self.TrainingActorReleaseFxTokens[player]
 	if not playerTokens then
 		playerTokens = {}
 		self.TrainingActorReleaseFxTokens[player] = playerTokens
 	end
 
+	local actorModel = self:_getActorModelAndInfo(player, actorIndex)
 	local token = (playerTokens[actorIndex] or 0) + 1
 	playerTokens[actorIndex] = token
 	SetTrainingActorActionFxEnabled(actorModel, true, emitCount or 10)
 
-	task.delay(math.max(tonumber(duration) or 0.65, 0.05), function()
+	local level = visualState and visualState.Level or 1
+	task.delay(math.max(tonumber(duration) or 0.65, 0.05) / level, function()
 		local currentTokens = self.TrainingActorReleaseFxTokens[player]
 		if not currentTokens or currentTokens[actorIndex] ~= token then
 			return
@@ -1033,7 +1080,8 @@ function TrainingController:_pulseActorKickFx(
 	actorModel: Model?,
 	kickToken: string?,
 	duration: number?,
-	emitCount: number?
+	emitCount: number?,
+	visualState
 )
 	if not player or not actorIndex or not actorModel or not kickToken then
 		return
@@ -1050,7 +1098,7 @@ function TrainingController:_pulseActorKickFx(
 	end
 
 	playerTokens[actorIndex] = kickToken
-	self:_pulseActorReleaseFx(player, actorIndex, actorModel, duration, emitCount)
+	self:_emitTrainingActorReleaseFx(player, actorIndex, duration or 0.65, emitCount or 10, visualState)
 end
 
 function TrainingController:_shouldEnableDribbleActorFx(actorState): boolean
@@ -1251,17 +1299,19 @@ function TrainingController:_markTrainingBallReleased(visualState, releaseToken:
 	visualState._TrainingBallReleasedTokens[releaseToken] = true
 end
 
-function TrainingController:_getReleaseFallbackDelay(track, actorState): number
+function TrainingController:_getReleaseFallbackDelay(track, actorState, visualState): number
+	local level = visualState and visualState.Level or 1
+
 	if track and typeof(track) == "Instance" and track.Length and track.Length > 0.05 then
-		return math.clamp(track.Length * 0.92, 0.35, 1.2)
+		return math.clamp(track.Length * 0.92, 0.35, 1.2) / level
 	end
 
 	if actorState and actorState.PhaseDuration and actorState.PhaseElapsed then
 		local remaining = math.max(actorState.PhaseDuration - actorState.PhaseElapsed, 0.15)
-		return math.clamp(remaining * 0.85, 0.35, 1.2)
+		return math.clamp(remaining * 0.85, 0.35, 1.2) / level
 	end
 
-	return DEFAULT_RELEASE_FALLBACK_SECONDS
+	return DEFAULT_RELEASE_FALLBACK_SECONDS / level
 end
 
 function TrainingController:_getShootTargetPosition(cycleData, actorState, releaseCFrame: CFrame): Vector3
@@ -1401,13 +1451,28 @@ function TrainingController:_releaseTrainingBallFromActor(
 		or CFrame.new()
 
 	if actorState.Mode == "ShootTraining" then
+		if player == Players.LocalPlayer then
+			local soundParent = GetReplicatedCharacterSoundEmitterPart(player)
+			if soundParent then
+				Sound:PlayServerSound(TRAINING_SHOOT_SOUND_NAME, soundParent)
+			end
+		end
+
 		local endPosition = self:_getShootTargetPosition(cycleData, actorState, releaseCFrame)
 		local duration = (self.TrainingConfig.Visuals and self.TrainingConfig.Visuals.BallTweenTime) or 0.45
+		duration = duration / (visualState.Level or 1)
 
 		self:_playTrainingBallFlight(player, visualKey, releaseCFrame, endPosition, duration, 4, 6.5, true, function()
 			self:_emitGoalFx(cycleData)
 		end)
 	elseif actorState.Mode == "PassTraining" then
+		if player == Players.LocalPlayer then
+			local soundParent = GetReplicatedCharacterSoundEmitterPart(player)
+			if soundParent then
+				Sound:PlayServerSound(TRAINING_PASS_SOUND_NAME, soundParent)
+			end
+		end
+
 		self:_hidePassLaneEmbeddedBalls(player, actorState)
 
 		local endPosition = self:_getPassTargetPosition(player, cycleData, actorState, releaseCFrame)
@@ -1418,6 +1483,8 @@ function TrainingController:_releaseTrainingBallFromActor(
 		local configuredDuration = (self.TrainingConfig.Thresholds and self.TrainingConfig.Thresholds.PassBallTweenTime)
 			or 0.34
 		local duration = math.max(configuredDuration, 0.46)
+		duration = duration / (visualState.Level or 1)
+
 		local receiveToken = self:_buildPassReceiveToken(visualState, actorState)
 		self:_playTrainingBallFlight(
 			player,
@@ -1534,7 +1601,7 @@ function TrainingController:_bindTrainingBallRelease(
 
 	playerBindings[actorState.ActorIndex] = binding
 
-	task.delay(self:_getReleaseFallbackDelay(track, actorState), function()
+	task.delay(self:_getReleaseFallbackDelay(track, actorState, visualState), function()
 		releaseOnce()
 	end)
 end
@@ -2424,6 +2491,7 @@ function TrainingController:KnitInit()
 	self.SoccerCharactersController = Knit.GetController("SoccerCharactersController")
 
 	self.TrainingConfig = DataCacheController:GetFile("TrainingConfig")
+	self.Template = DataCacheController:GetFile("Template")
 
 	local rootFolder = Instance.new("Folder")
 	rootFolder.Name = "TrainingVisuals"
@@ -2439,12 +2507,125 @@ function TrainingController:KnitInit()
 end
 
 function TrainingController:KnitStart()
+	local center = trainingOptionsGui.Frame.BottomFrame.Center
+	for level = 1, 3 do
+		local frame = center:FindFirstChild(tostring(level))
+		if frame then
+			local button = frame:FindFirstChild("Button")
+			if button then
+				button.Activated:Connect(function()
+					TrainingService:RequestSetTrainingLevel(level):andThen(function(success, err)
+						if success then
+							currentTrainingLevel = level
+							self:_updateTrainingOptionsSelection()
+						else
+							if err then
+								local NotificationController = Knit.GetController("NotificationController")
+								if NotificationController then
+									NotificationController:Notify({ tag = "Training", text = err, type = "ERROR" })
+								end
+							end
+						end
+					end)
+				end)
+			end
+		end
+	end
+
+	TrainingService.TrainingTempStaminaChanged:Connect(function(tempStamina, maxStamina)
+		if trainingOptionsGui and trainingOptionsGui.Enabled then
+			local bar = trainingOptionsGui:FindFirstChild("StaminaBar", true)
+			if bar then
+				local textLabel = bar:FindFirstChild("StaminaAmountText", true)
+				if textLabel then
+					textLabel.Text = FormatNumber(math.floor(tempStamina))
+				end
+
+				local ratio = maxStamina > 0 and math.clamp(tempStamina / maxStamina, 0, 1) or 0
+				local bar1 = bar:FindFirstChild("Bar1")
+				local bar2 = bar:FindFirstChild("Bar2")
+
+				local rot1 = math.clamp(-180 + (1 - ratio) * 360, -180, 0)
+				local rot2 = math.clamp(0 + (0.5 - ratio) * 360, 0, 180)
+
+				local grad1 = bar1 and bar1:FindFirstChildWhichIsA("UIGradient", true)
+				local grad2 = bar2 and bar2:FindFirstChildWhichIsA("UIGradient", true)
+
+				if grad1 and grad2 then
+					local diff1 = math.abs(rot1 - grad1.Rotation)
+					local diff2 = math.abs(rot2 - grad2.Rotation)
+					local totalDiff = diff1 + diff2
+
+					if totalDiff > 0.01 then
+						local dur1 = 0.3
+						local dur2 = 0.3
+						local delay1 = 0
+						local delay2 = 0
+
+						if diff1 > 0.01 and diff2 > 0.01 then
+							dur1 = 0.3 * (diff1 / totalDiff)
+							dur2 = 0.3 * (diff2 / totalDiff)
+							local isDecreasing = tempStamina < (self.LastTempStamina or tempStamina)
+
+							if isDecreasing then
+								delay2 = dur1
+							else
+								delay1 = dur2
+							end
+						end
+
+						local ti1 = TweenInfo.new(dur1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, 0, false, delay1)
+						local ti2 = TweenInfo.new(dur2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, 0, false, delay2)
+
+						TweenService:Create(grad1, ti1, {Rotation = rot1}):Play()
+						TweenService:Create(grad2, ti2, {Rotation = rot2}):Play()
+					end
+					
+					self.LastTempStamina = tempStamina
+				end
+
+				if self.CurrentTrainingCosts then
+					local center = trainingOptionsGui.Frame.BottomFrame.Center
+					for level = 1, 3 do
+						local cost = self.CurrentTrainingCosts[level]
+						if cost then
+							local frame = center:FindFirstChild(tostring(level))
+							if frame then
+								local button = frame:FindFirstChild("Button", true)
+								if button then
+									local bottom = button:FindFirstChild("Bottom", true)
+									if bottom and bottom:FindFirstChild("StaminaCostText", true) then
+										if maxStamina < cost then
+											bottom.StaminaCostText.TextColor3 = Color3.fromRGB(255, 0, 0)
+										else
+											bottom.StaminaCostText.TextColor3 = Color3.fromRGB(255, 255, 255)
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end)
+
 	UserInputService.JumpRequest:Connect(function()
 		TrainingService:RequestStopTraining()
 	end)
 
 	TrainingService.TrainingVisualStateChanged:Connect(
-		function(targetPlayer, isTraining, statType, zoneKey, serverStartTime, isAuto)
+		function(targetPlayer, isTraining, statType, zoneKey, serverStartTime, isAuto, level)
+			if targetPlayer == player then
+				trainingOptionsGui.Enabled = isTraining
+				if isTraining then
+					self.CurrentStatType = statType
+					self:_setupTrainingOptionsUI(statType)
+				else
+					self.CurrentStatType = nil
+				end
+			end
+
 			if isTraining then
 				local runtime = TrainingRuntimeRegistry.GetRuntimeByStatType(statType)
 				if runtime then
@@ -2453,7 +2634,10 @@ function TrainingController:KnitStart()
 						StatType = statType,
 						ZoneKey = zoneKey,
 						ServerStartTime = serverStartTime,
+						OriginalServerStartTime = serverStartTime,
 						IsAuto = isAuto,
+						Level = level or 1,
+						IsResting = false,
 					})
 				end
 			else
@@ -2461,6 +2645,25 @@ function TrainingController:KnitStart()
 			end
 		end
 	)
+
+	TrainingService.TrainingRestingStateChanged:Connect(function(isResting)
+		local visualState = self.VisualStates[player]
+		if visualState then
+			visualState.IsResting = isResting
+		end
+	end)
+
+	TrainingService.TrainingLevelChanged:Connect(function(targetPlayer, level)
+		local visualState = self.VisualStates[targetPlayer]
+		if visualState then
+			visualState.Level = level
+		end
+
+		if targetPlayer == player then
+			currentTrainingLevel = level
+			self:_updateTrainingOptionsSelection()
+		end
+	end)
 
 	TeleportService.PlayerTeleported:Connect(function(player)
 		self:SetVisualState(player, nil)
@@ -2471,6 +2674,138 @@ function TrainingController:KnitStart()
 
 		for player, visualState in pairs(self.VisualStates) do
 			if player and visualState and TrainingRuntimeRegistry.IsRuntimeVisualState(visualState) then
+				local shouldPauseTime = true
+
+				if visualState.IsResting then
+					if visualState.Mode == "DribbleTraining" then
+						local now = Workspace:GetServerTimeNow()
+						local elapsed = now - visualState.ServerStartTime
+						local cycleDuration = Settings.Dribble.StartHoldDuration + (5 * Settings.Dribble.NodeDuration)
+						local cycleIndex = math.floor(elapsed / cycleDuration)
+						local phaseTime = elapsed % cycleDuration
+						local holdBoundary = 0.01
+						local decisionBoundary = Settings.Dribble.StartHoldDuration
+
+						if not visualState.RestingCycleIndex then
+							visualState.RestingCycleIndex = cycleIndex
+							if phaseTime > decisionBoundary then
+								visualState.PauseCycleIndex = cycleIndex + 1
+							else
+								visualState.PauseCycleIndex = cycleIndex
+							end
+						end
+
+						if cycleIndex >= visualState.PauseCycleIndex and phaseTime >= holdBoundary then
+							shouldPauseTime = true
+							if not visualState.FrozenLocalTime then
+								visualState.FrozenLocalTime = (visualState.PauseCycleIndex * cycleDuration)
+									+ holdBoundary
+								visualState.PauseRealTime = Workspace:GetServerTimeNow()
+							end
+						else
+							shouldPauseTime = false
+						end
+					elseif visualState.Mode == "ShootTraining" then
+						local s = Settings.Shoot
+						local intervalDuration = s.MoveToShootDuration + s.ReadyToShootDuration + s.ShootDuration
+
+						local now = Workspace:GetServerTimeNow()
+						local elapsed = now - visualState.ServerStartTime
+						local cycleIndex = math.floor(elapsed / intervalDuration)
+						local cycleElapsed = elapsed % intervalDuration
+						local holdBoundary = s.MoveToShootDuration + 0.01
+						local decisionBoundary = s.MoveToShootDuration + s.ReadyToShootDuration
+
+						if not visualState.RestingCycleIndex then
+							visualState.RestingCycleIndex = cycleIndex
+							if cycleElapsed > decisionBoundary then
+								visualState.PauseCycleIndex = cycleIndex + 1
+							else
+								visualState.PauseCycleIndex = cycleIndex
+							end
+						end
+
+						if cycleIndex >= visualState.PauseCycleIndex and cycleElapsed >= holdBoundary then
+							shouldPauseTime = true
+							if not visualState.FrozenLocalTime then
+								visualState.FrozenLocalTime = (visualState.PauseCycleIndex * intervalDuration)
+									+ holdBoundary
+								visualState.PauseRealTime = Workspace:GetServerTimeNow()
+							end
+						else
+							shouldPauseTime = false
+						end
+					elseif visualState.Mode == "PassTraining" then
+						local s = Settings.Pass
+						local cycleDuration = s.PassDuration + s.SettleDuration + s.PassDuration + s.SettleDuration
+
+						local now = Workspace:GetServerTimeNow()
+						local startDelay = s.StartDelay or 0
+						local elapsed = now - visualState.ServerStartTime
+						local effectiveElapsed = math.max(0, elapsed - startDelay)
+						local cycleIndex = math.floor(effectiveElapsed / cycleDuration)
+						local cycleElapsed = effectiveElapsed % cycleDuration
+
+						local halfCycle = s.PassDuration + s.SettleDuration
+						local holdBoundary
+
+						if cycleElapsed < halfCycle then
+							holdBoundary = s.PassDuration + 0.01
+						else
+							holdBoundary = halfCycle + s.PassDuration + 0.01
+						end
+
+						if not visualState.RestingCycleIndex then
+							visualState.RestingCycleIndex = cycleIndex
+							visualState.PauseCycleIndex = cycleIndex
+							visualState.TargetHoldBoundary = holdBoundary
+						end
+
+						if elapsed < startDelay then
+							shouldPauseTime = true
+							if not visualState.FrozenLocalTime then
+								visualState.FrozenLocalTime = elapsed
+								visualState.PauseRealTime = Workspace:GetServerTimeNow()
+							end
+						else
+							local targetBoundary = visualState.TargetHoldBoundary or holdBoundary
+
+							if cycleIndex >= visualState.PauseCycleIndex and cycleElapsed >= targetBoundary then
+								shouldPauseTime = true
+								if not visualState.FrozenLocalTime then
+									visualState.FrozenLocalTime = (visualState.PauseCycleIndex * cycleDuration)
+										+ targetBoundary
+										+ startDelay
+									visualState.PauseRealTime = Workspace:GetServerTimeNow()
+								end
+							else
+								shouldPauseTime = false
+							end
+						end
+					end
+
+					if shouldPauseTime and visualState.ServerStartTime then
+						if visualState.FrozenLocalTime then
+							visualState.ServerStartTime = Workspace:GetServerTimeNow() - visualState.FrozenLocalTime
+						else
+							visualState.ServerStartTime += delta
+						end
+					else
+						-- Time is unpaused and flowing
+						local extraSpeed = (visualState.Level or 1) - 1
+						if extraSpeed > 0 and visualState.ServerStartTime then
+							-- Accelerate time by shifting ServerStartTime backward
+							visualState.ServerStartTime -= delta * extraSpeed
+						end
+					end
+				else
+					visualState.RestingCycleIndex = nil
+					visualState.PauseCycleIndex = nil
+					visualState.FrozenLocalTime = nil
+					visualState.PauseRealTime = nil
+					visualState.TargetHoldBoundary = nil
+				end
+
 				local proxy = self:_ensurePlayerProxy(player)
 				if not proxy then
 					continue
@@ -2480,14 +2815,17 @@ function TrainingController:KnitStart()
 					OriginalCharacterMask.SetHidden(player.Character, true)
 				end
 
+				local proxyState = self.PlayerProxyStates[player]
+				if not proxyState.Information then
+					proxyState.Information = { Arrived = false }
+				end
+				proxyState.Information.Target = player.Character and player.Character.PrimaryPart or workspace.Terrain
+
 				-- Construct a temporary 'session' for the player proxy
 				proxySessions[player] = {
 					[0] = { -- actorIndex 1
 						Data = { Name = "PlayerProxy" },
-						Information = {
-							Target = player.Character and player.Character.PrimaryPart or workspace.Terrain,
-							Arrived = false,
-						},
+						Information = proxyState.Information,
 						LastInformation = self.PlayerProxyStates[player],
 						Model = proxy,
 					},

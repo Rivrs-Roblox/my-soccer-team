@@ -59,10 +59,19 @@ local function setTrainingPromptsEnabledForLocalPlayer(isEnabled: boolean)
 	end
 end
 
+local function isPurchasePromptActive(): boolean
+	local monetizationController = nil
+	pcall(function()
+		monetizationController = Knit.GetController("MonetizationController")
+	end)
+	return monetizationController ~= nil and monetizationController:IsPurchasePromptActive()
+end
+
 local function applyCurrentPromptVisibility()
-	-- kalau sedang training, prompt lokal di-hide
-	-- kalau tidak sedang training, prompt lokal ditampilkan lagi
-	setTrainingPromptsEnabledForLocalPlayer(not localTrainingActive)
+	-- kalau sedang training atau sedang top up, prompt lokal di-hide
+	-- kalau tidak sedang keduanya, prompt lokal ditampilkan lagi
+	local shouldHide = localTrainingActive or isPurchasePromptActive()
+	setTrainingPromptsEnabledForLocalPlayer(not shouldHide)
 end
 
 -- || Knit Lifecycle ||--
@@ -82,10 +91,21 @@ function TrainingPromptVisibilityController:KnitStart()
 		applyCurrentPromptVisibility()
 	end)
 
+	local monetizationController = nil
+	pcall(function()
+		monetizationController = Knit.GetController("MonetizationController")
+	end)
+
+	if monetizationController and monetizationController.PromptStateChanged then
+		monetizationController.PromptStateChanged.Event:Connect(function()
+			applyCurrentPromptVisibility()
+		end)
+	end
+
 	local map = getTrainingMap()
 	if map then
 		map.DescendantAdded:Connect(function(descendant)
-			if not localTrainingActive then
+			if not localTrainingActive and not isPurchasePromptActive() then
 				return
 			end
 

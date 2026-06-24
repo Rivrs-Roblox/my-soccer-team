@@ -26,6 +26,7 @@ local CameraShaker = require(Helpers.Camera)
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local skipGachaGui = playerGui:WaitForChild("SkipGachaGui")
+local skipInfoText = skipGachaGui:WaitForChild("InfoText")
 local accessoriesGui = playerGui:WaitForChild("Accessories")
 
 -- Assets
@@ -43,6 +44,34 @@ local GachaTemplate
 local CategoryTemplate
 local UI
 local Colors
+
+function Gacha.SkipActive()
+	local session = Gacha._activeSession
+	if not session then
+		return false
+	end
+
+	if session.State == "WaitingOpenFx" or session.State == "WaitingSlideRight" then
+		session.NextStep:Fire()
+		return true
+	elseif session.State == "SlidingRight" then
+		if session.AnimationThread then
+			task.cancel(session.AnimationThread)
+		end
+		session.Completed:Fire()
+		return true
+	end
+
+	if not session.SkipRequested then
+		session.SkipRequested = true
+		if session.AnimationThread then
+			task.cancel(session.AnimationThread)
+		end
+		session.SkipEvent:Fire()
+	end
+
+	return true
+end
 
 function Gacha.Open(items, type, category)
 	category = category or "SoccerCharacters" -- Fallback to legacy behavior
@@ -68,8 +97,143 @@ function Gacha.Open(items, type, category)
 	local RewardStepName = "CardRewardRender" .. os.clock()
 	local camShake
 	local BlurredBackground
+	local activeCards = {}
+	local currentShakeOffset = CFrame.new()
 
 	local completed = Instance.new("BindableEvent")
+	local nextStep = Instance.new("BindableEvent")
+	local skipEvent = Instance.new("BindableEvent")
+
+	local activeSession = {
+		Completed = completed,
+		AnimationThread = nil,
+		SkipRequested = false,
+		State = "Animating",
+		NextStep = nextStep,
+		SkipEvent = skipEvent,
+	}
+	Gacha._activeSession = activeSession
+	skipInfoText.Text = "Click anywhere to skip"
+
+	local function ShowFinalCards()
+		if PackModel then PackModel:Destroy() end
+		RunService:UnbindFromRenderStep(RenderStepName)
+
+		if not RewardsFolder then
+			RewardsFolder = Instance.new("Folder")
+			RewardsFolder.Name = "GachaRewards"
+			RewardsFolder.Parent = CurrentCamera
+		else
+			RewardsFolder:ClearAllChildren()
+		end
+
+		activeCards = {}
+
+		local countKey = if CardSettings.Placements[#items] then #items else (if #items > 5 then 10 else (if #items > 1 then 5 else 1))
+		local placements = CardSettings.Placements[countKey]
+		local sizes = CardSettings.Sizes[countKey]
+		local baseRotation = CFrame.Angles(0, math.rad(180), 0)
+
+		for i, item in ipairs(items) do
+			local card = Card:Clone()
+			for _, v in ipairs(card:GetDescendants()) do
+				if v:IsA("BasePart") then
+					v.Anchored = true
+					v.CanCollide = false
+				end
+			end
+			card.Parent = RewardsFolder
+
+			local offset = placements[i] or Vector3.new(0, 0, 0)
+			local size = sizes[i] or Vector3.new(1, 1, 1)
+
+			for _, v in ipairs(card:GetDescendants()) do
+				if v:IsA("BasePart") then
+					v.Size *= (size.Y / 3)
+				end
+			end
+
+			local CardOffsetValue = Instance.new("CFrameValue", card)
+			local zPos = GachaConfig.Characters.Cards.RevealBounce.ZoomOutZ + offset.Z
+			CardOffsetValue.Value = CFrame.new(offset.X, offset.Y, zPos) * baseRotation
+
+			table.insert(activeCards, { Card = card, Value = CardOffsetValue })
+
+			local realItemData = CategoryTemplate[item]
+			if realItemData then
+				local name = realItemData.Name
+				local shoot = realItemData.Multipliers.Shoot
+				local dribble = realItemData.Multipliers.Dribble
+				local pass = realItemData.Multipliers.Pass
+				local rarity = realItemData.Rarity
+
+				card:FindFirstChild("Name", true).Text = name
+				card:FindFirstChild("Dribble", true).Number.Text = dribble or 0
+				card:FindFirstChild("Shooting", true).Number.Text = shoot or 0
+				card:FindFirstChild("Passing", true).Number.Text = pass or 0
+
+				card:FindFirstChild("CardImage", true).Image = UI["Card_" .. string.gsub(rarity, " ", "_")]
+				card:FindFirstChild("CardMaskImage", true).Image = UI["Card_" .. string.gsub(rarity, " ", "_") .. "_Mask"]
+				card:FindFirstChild("CharacterImage", true).Image = UI[name]
+
+				local rarityFxs = card:FindFirstChild(rarity, true)
+				if rarityFxs then
+					for _, desc in ipairs(rarityFxs:GetDescendants()) do
+						if desc:IsA("ParticleEmitter") then
+							desc.Enabled = true
+
+							if desc.Parent.Name == "RevealFx" then
+								task.delay(0.5, function()
+									desc.Enabled = false
+								end)
+							end
+						end
+					end
+				end
+			end
+		end
+
+		RunService:BindToRenderStep(RewardStepName, Enum.RenderPriority.Last.Value, function()
+			local baseCameraCF = CurrentCamera.CFrame
+			CurrentCamera.CFrame = baseCameraCF * currentShakeOffset
+			for _, data in ipairs(activeCards) do
+				if data.Card and data.Value then
+					data.Card:PivotTo(baseCameraCF * data.Value.Value)
+				end
+			end
+		end)
+	end
+
+	local function SlideCardsRightAndComplete()
+		activeSession.State = "SlidingRight"
+		local exitTweenInfo = TweenInfo.new(
+			GachaConfig.Characters.Cards.Exit.Duration,
+			Enum.EasingStyle.Quint,
+			Enum.EasingDirection.In
+		)
+		for _, data in ipairs(activeCards) do
+			if data.Card and data.Value then
+				local currentCF = data.Value.Value
+				local exitCF = CFrame.new(currentCF.Position + GachaConfig.Characters.Cards.Exit.Offset)
+					* CFrame.Angles(0, math.rad(180), 0)
+				TweenService:Create(data.Value, exitTweenInfo, { Value = exitCF }):Play()
+			end
+		end
+		task.wait(GachaConfig.Characters.Cards.Exit.Duration)
+	end
+
+	skipEvent.Event:Connect(function()
+		if category == "SoccerCharacters" then
+			ShowFinalCards()
+			activeSession.State = "WaitingSlideRight"
+			skipInfoText.Text = "Click anywhere to continue"
+			nextStep.Event:Wait()
+			SlideCardsRightAndComplete()
+			completed:Fire()
+		else
+			completed:Fire()
+		end
+	end)
 
 	local animationThread = task.spawn(function()
 		if category == "SoccerCharacters" then
@@ -181,14 +345,27 @@ function Gacha.Open(items, type, category)
 
 			PositionTween1.Completed:Wait()
 
+			activeSession.State = "WaitingOpenFx"
+			skipInfoText.Text = "Click anywhere to open"
+			nextStep.Event:Wait()
+			activeSession.State = "Animating"
+			skipInfoText.Text = "Click anywhere to skip"
+
 			local openFxs = PackModel:FindFirstChild("OpenFx", true):GetChildren()
 			local packGui = PackModel:FindFirstChild("PackGui", true)
 
+			local gachaStorage = ReplicatedStorage:FindFirstChild("GachaFxStorage")
+			if not gachaStorage then
+				gachaStorage = Instance.new("Folder")
+				gachaStorage.Name = "GachaFxStorage"
+				gachaStorage.Parent = ReplicatedStorage
+			end
+
 			for _, fx in ipairs(openFxs) do
 				if fx:IsA("ParticleEmitter") then
-					fx.Parent = packGui.Frame.Fx
+					fx.Parent = gachaStorage
 					fx.Enabled = true
-					EmitterModule:AddEmitter(fx, 1)
+					EmitterModule:AddEmitter(fx, 1, packGui.Frame.Fx)
 				end
 			end
 
@@ -198,6 +375,7 @@ function Gacha.Open(items, type, category)
 
 			for _, fx in ipairs(openFxs) do
 				if fx:IsA("ParticleEmitter") then
+					fx.Enabled = false
 					fx.Parent = packGui.Frame.Fx
 					EmitterModule:RemoveEmitter(fx)
 				end
@@ -250,9 +428,6 @@ function Gacha.Open(items, type, category)
 			RewardsFolder = Instance.new("Folder")
 			RewardsFolder.Name = "GachaRewards"
 			RewardsFolder.Parent = CurrentCamera
-
-			local activeCards = {}
-			local currentShakeOffset = CFrame.new()
 
 			camShake = CameraShaker.new(Enum.RenderPriority.Camera.Value + 1, function(shakeCFrame)
 				currentShakeOffset = shakeCFrame
@@ -498,20 +673,11 @@ function Gacha.Open(items, type, category)
 			end
 
 			-- Slide all cards to the right
-			local exitTweenInfo = TweenInfo.new(
-				GachaConfig.Characters.Cards.Exit.Duration,
-				Enum.EasingStyle.Quint,
-				Enum.EasingDirection.In
-			)
-			for _, data in ipairs(activeCards) do
-				if data.Card and data.Value then
-					local currentCF = data.Value.Value
-					local exitCF = CFrame.new(currentCF.Position + GachaConfig.Characters.Cards.Exit.Offset)
-						* CFrame.Angles(0, math.rad(180), 0)
-					TweenService:Create(data.Value, exitTweenInfo, { Value = exitCF }):Play()
-				end
-			end
-			task.wait(GachaConfig.Characters.Cards.Exit.Duration)
+			activeSession.State = "WaitingSlideRight"
+			skipInfoText.Text = "Click anywhere to continue"
+			nextStep.Event:Wait()
+			
+			SlideCardsRightAndComplete()
 		elseif category == "Accessories" then
 			accessoriesGui.Enabled = true
 
@@ -666,6 +832,8 @@ function Gacha.Open(items, type, category)
 		completed:Fire()
 	end)
 
+	activeSession.AnimationThread = animationThread
+
 	local skipConnection = UserInputService.InputBegan:Connect(function(input, gpe)
 		if gpe then
 			return
@@ -674,14 +842,18 @@ function Gacha.Open(items, type, category)
 			input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch
 		then
-			task.cancel(animationThread)
-			completed:Fire()
+			Gacha.SkipActive()
 		end
 	end)
 
 	completed.Event:Wait()
+	if Gacha._activeSession == activeSession then
+		Gacha._activeSession = nil
+	end
 	skipConnection:Disconnect()
 	completed:Destroy()
+	nextStep:Destroy()
+	skipEvent:Destroy()
 
 	-- CLEANUP
 	if PackModel then

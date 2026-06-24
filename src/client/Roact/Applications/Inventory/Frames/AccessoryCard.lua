@@ -31,20 +31,28 @@ return function(params: table)
 		},
 	})
 
-	return Roact.createElement("ImageButton", {
+	return Roact.createElement("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		ScaleType = 3,
 		BackgroundColor3 = Color3.fromHex("ffffff"),
 		ZIndex = 2,
 		LayoutOrder = params.order,
-
-		[Roact.Event.MouseButton1Down] = function()
-			Sound:PlaySound("UI_Click")
-			if params.onClick then
-				params.onClick()
-			end
-		end,
 	}, {
+		TouchTarget = Roact.createElement("ImageButton", {
+			Active = true,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			ImageTransparency = 1,
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 20,
+
+			[Roact.Event.MouseButton1Click] = function()
+				Sound:PlaySound("UI_Click")
+				if params.onClick then
+					params.onClick()
+				end
+			end,
+		}),
 		Ratio = Roact.createElement("UIAspectRatioConstraint", {
 			AspectRatio = 0.7,
 		}),

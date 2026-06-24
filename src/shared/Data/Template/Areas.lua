@@ -4,11 +4,6 @@ return table.freeze({
 		Name = "Street League",
 		Price = 0,
 		Order = 1,
-		Training = {
-			Shoot = { RewardPerTick = 7 },
-			Pass = { RewardPerTick = 7 },
-			Dribble = { RewardPerTick = 7 },
-		},
 	},
 
 	["Area02"] = {
@@ -16,11 +11,6 @@ return table.freeze({
 		Name = "Amateur League",
 		Price = 5_000,
 		Order = 2,
-		Training = {
-			Shoot = { RewardPerTick = 77 },
-			Pass = { RewardPerTick = 77 },
-			Dribble = { RewardPerTick = 77 },
-		},
 	},
 
 	["Area03"] = {
@@ -28,11 +18,6 @@ return table.freeze({
 		Name = "Pro League",
 		Price = 277_000_000,
 		Order = 3,
-		Training = {
-			Shoot = { RewardPerTick = 1_001 },
-			Pass = { RewardPerTick = 1_001 },
-			Dribble = { RewardPerTick = 1_001 },
-		},
 	},
 
 	["Area04"] = {
@@ -40,11 +25,6 @@ return table.freeze({
 		Name = "World League",
 		Price = 4_000_000_000_000,
 		Order = 4,
-		Training = {
-			Shoot = { RewardPerTick = 21_021 },
-			Pass = { RewardPerTick = 21_021 },
-			Dribble = { RewardPerTick = 21_021 },
-		},
 	},
 
 	["Area05"] = {
@@ -52,10 +32,5 @@ return table.freeze({
 		Name = "Legend League",
 		Price = 75_000_000_000_000_000,
 		Order = 5,
-		Training = {
-			Shoot = { RewardPerTick = 714_714 },
-			Pass = { RewardPerTick = 714_714 },
-			Dribble = { RewardPerTick = 714_714 },
-		},
 	},
 })

@@ -14,7 +14,18 @@ return table.freeze({
 		Target = 0,
 	},
 	[3] = {
-		Text = "To get more powerful, you need to train your stats. Train your Shooting stats!",
+		Text = "To get more powerful, you need to train your stats. Train your Stamina stats!",
+		ArrowTarget = function()
+			return workspace
+				:WaitForChild("Map")
+				:WaitForChild("TrainingAreas")
+				:WaitForChild("StaminaZone")
+				:WaitForChild("Pivot")
+		end,
+		Target = 150,
+	},
+	[4] = {
+		Text = "Train your Shooting stats!",
 		ArrowTarget = function()
 			return workspace
 				:WaitForChild("Map")
@@ -24,7 +35,7 @@ return table.freeze({
 		end,
 		Target = 50,
 	},
-	[4] = {
+	[5] = {
 		Text = "Train your Passing stats!",
 		ArrowTarget = function()
 			return workspace
@@ -35,7 +46,7 @@ return table.freeze({
 		end,
 		Target = 50,
 	},
-	[5] = {
+	[6] = {
 		Text = "Train your Dribbling stats!",
 		ArrowTarget = function()
 			return workspace
@@ -46,7 +57,7 @@ return table.freeze({
 		end,
 		Target = 50,
 	},
-	[6] = {
+	[7] = {
 		Text = "Go and win a match!",
 		ArrowTarget = function()
 			return workspace
@@ -57,21 +68,21 @@ return table.freeze({
 		end,
 		Target = 0,
 	},
-	[7] = {
+	[8] = {
 		Text = "Buy character pack to unlock more players!",
 		ArrowTarget = function()
 			return nil
 		end,
 		Target = 1,
 	},
-	[8] = {
+	[9] = {
 		Text = "Equip your new player!",
 		ArrowTarget = function()
 			return nil
 		end,
 		Target = 0,
 	},
-	[9] = {
+	[10] = {
 		Text = "Buy accessories to boost your character stats during matches!",
 		ArrowTarget = function()
 			return workspace
@@ -82,7 +93,7 @@ return table.freeze({
 		end,
 		Target = 1,
 	},
-	[10] = {
+	[11] = {
 		Text = "Equip your accessories!",
 		ArrowTarget = function()
 			return nil

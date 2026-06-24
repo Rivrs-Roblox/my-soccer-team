@@ -39,7 +39,16 @@ local function PickOpeningScore(_seed: number)
 	return { Home = 0, Away = 0 }
 end
 
-local function PickMinute(seed: number): number
+local function PickMinute(seed: number, match): number
+	-- Multi-leg: use accumulated minute from aggregate state
+	if match and match.AccumulatedMinute then
+		return tonumber(match.AccumulatedMinute)
+	end
+
+	if match and match.StartMinute then
+		return tonumber(match.StartMinute)
+	end
+
 	local liveConfig = TournamentConfig.LiveMatch
 	local minMinute = tonumber(liveConfig.MinMinute) or 85
 	local maxMinute = tonumber(liveConfig.MaxMinute) or 90
@@ -101,12 +110,27 @@ function TournamentQuery.BuildMatchContext(state)
 	local playerTeam = CloneTeam(state.PlayerTeam)
 	local contextSeed = (state.Seed or 1) + (state.CurrentRoundIndex * 17)
 	local score = currentMatch.Score and CloneScore(currentMatch.Score) or PickOpeningScore(contextSeed)
-	local minute = tonumber(currentMatch.Minute) or PickMinute(contextSeed)
+	local minute = tonumber(currentMatch.Minute) or PickMinute(contextSeed, currentMatch)
 	local rewardPreview = TournamentRewardCalculator.BuildRoundPreview({
 		AreaId = tostring(state.AreaId or "Area01"),
 		RoundId = tostring(currentRound.RoundId or "RoundOf16"),
 		RoundIndex = tonumber(state.CurrentRoundIndex) or 1,
+		RequiredPlayerGoals = currentMatch.RequiredPlayerGoals,
 	})
+	local requiredPlayerGoals = currentMatch.RequiredPlayerGoals or rewardPreview.RequiredPlayerGoals
+
+	-- Multi-leg: use aggregate scores for intro display
+	local introHomeScore = score.Home
+	local introAwayScore = score.Away
+	if currentMatch.AggregatePlayer ~= nil then
+		if IsPlayerTeam(currentMatch.HomeTeam) then
+			introHomeScore = currentMatch.AggregatePlayer or 0
+			introAwayScore = currentMatch.AggregateOpponent or 0
+		else
+			introHomeScore = currentMatch.AggregateOpponent or 0
+			introAwayScore = currentMatch.AggregatePlayer or 0
+		end
+	end
 
 	return {
 		StateId = tostring(state.StateId or ""),
@@ -125,18 +149,31 @@ function TournamentQuery.BuildMatchContext(state)
 		MatchMinute = minute,
 		RewardPreview = rewardPreview,
 		RewardWins = rewardPreview.RewardWins,
+		RewardPerGoalWins = rewardPreview.RewardPerGoalWins,
 		RewardText = rewardPreview.RewardText,
+		-- Multi-leg aggregate data
+		AggregatePlayer = currentMatch.AggregatePlayer,
+		AggregateOpponent = currentMatch.AggregateOpponent,
+		CurrentLeg = currentMatch.CurrentLeg,
+		LegsPlayed = currentMatch.LegsPlayed,
+		AccumulatedMinute = currentMatch.AccumulatedMinute,
+		RequiredPlayerGoals = requiredPlayerGoals,
+		TargetPlayerGoals = currentMatch.TargetPlayerGoals,
+		TargetOpponentGoals = currentMatch.TargetOpponentGoals,
+		LegResult = state.LegResult,
 		Intro = {
 			AreaId = tostring(state.AreaId or "Area01"),
 			HomeTeamName = playerTeam and playerTeam.DisplayName or "FC Rivrs",
 			AwayTeamName = opponentTeam and opponentTeam.DisplayName or "FC Roblox",
-			HomeScore = score.Home,
-			AwayScore = score.Away,
+			HomeScore = introHomeScore,
+			AwayScore = introAwayScore,
 			MatchMinute = minute,
 			LeagueName = tostring(state.CupName or "Tournament Cup"),
 			RoundName = tostring(currentRound.RoundName or "Round of 16"),
 			RewardPreview = rewardPreview,
 			RewardWins = rewardPreview.RewardWins,
+			RewardPerGoalWins = rewardPreview.RewardPerGoalWins,
+			RequiredPlayerGoals = requiredPlayerGoals,
 			RewardText = rewardPreview.RewardText,
 			HomeLogo = "",
 			AwayLogo = "",

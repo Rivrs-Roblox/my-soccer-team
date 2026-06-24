@@ -1359,6 +1359,29 @@ local function ResolveCenterGripCFrameProvider(keeperModel, fallbackCFrame)
 		return nil
 	end
 
+	local function resolveCenterForwardVector()
+		local root = keeperModel:FindFirstChild("HumanoidRootPart", true)
+		local rootCFrame = if root and root:IsA("BasePart") then root.CFrame else GetInstanceCFrame(keeperModel)
+
+		if rootCFrame and fallbackCFrame then
+			local toFallback = rootCFrame.Position - fallbackCFrame.Position
+			local flatToFallback = Vector3.new(toFallback.X, 0, toFallback.Z)
+			if flatToFallback.Magnitude > 0.001 then
+				return flatToFallback.Unit
+			end
+		end
+
+		if rootCFrame then
+			return GetFlatUnit(rootCFrame.LookVector)
+		end
+
+		if fallbackCFrame then
+			return GetFlatUnit(fallbackCFrame.LookVector)
+		end
+
+		return DEFAULT_FORWARD
+	end
+
 	local function resolveMidpointCFrame()
 		local leftPosition = getWorldPosition(leftTarget)
 		local rightPosition = getWorldPosition(rightTarget)
@@ -1368,13 +1391,12 @@ local function ResolveCenterGripCFrameProvider(keeperModel, fallbackCFrame)
 		end
 
 		local midpoint = (leftPosition + rightPosition) * 0.5
-		local handLine = rightPosition - leftPosition
+		local forwardVector = resolveCenterForwardVector()
+		local centerForwardOffset = math.max(tonumber(MatchKeeperConfig.GoalHoldCenterHandForwardOffset) or 0.65, 0)
+		local centerLiftOffset = tonumber(MatchKeeperConfig.GoalHoldCenterHandLiftOffset) or 0
+		local contactPosition = midpoint + (forwardVector * centerForwardOffset) + Vector3.new(0, centerLiftOffset, 0)
 
-		if handLine.Magnitude > 0.001 then
-			return CFrame.lookAt(midpoint, midpoint + handLine.Unit)
-		end
-
-		return CFrame.new(midpoint)
+		return CFrame.lookAt(contactPosition, contactPosition + forwardVector)
 	end
 
 	return resolveMidpointCFrame, resolveMidpointCFrame()
@@ -1512,7 +1534,11 @@ local function ResolveKeeperContactTarget(keeperModel, reactionData, ballTargetP
 
 	if
 		reactionData
-		and (reactionData.ContactMode == "Catch" or reactionData.ContactMode == "Breakthrough")
+		and (
+			reactionData.ContactMode == "Catch"
+			or reactionData.ContactMode == "Breakthrough"
+			or reactionData.ContactMode == "GoalHold"
+		)
 		and IsCenterShotTargetId(reactionData.ShotTargetId)
 	then
 		local midpointProvider, midpointCFrame = ResolveCenterGripCFrameProvider(
@@ -2487,7 +2513,10 @@ function MatchKeeperPresentationController:_buildReactionData(
 		keeperLandingTarget = MatchShootTargetResolver.GetKeeperLandingTarget(shotTargetId)
 	end
 
-	local keeperSaveTargetPosition = keeperSaveTarget and keeperSaveTarget.Position or ballTargetPosition
+	local isPerfectGoal = isGoal and (tostring(shootTier or "") == "Green")
+	local keeperSaveTargetPosition = (isPerfectGoal and ballTargetPosition)
+		or (keeperSaveTarget and keeperSaveTarget.Position)
+		or ballTargetPosition
 	local toBall = keeperSaveTargetPosition - keeperPos
 	local rightDot = toBall:Dot(rightVector)
 	local lateralAbs = math.abs(rightDot)
@@ -2615,6 +2644,7 @@ function MatchKeeperPresentationController:_buildReactionData(
 			diveAirPos = keeperPos
 				+ (forwardVector * ((MatchKeeperConfig.GoalForwardAdvance or 0.65) * scaleCompensation))
 				+ Vector3.new(0, liftAmount, 0)
+
 			rollAngle = 0
 		else
 			local scaleByTier = MatchKeeperConfig.GoalRootLateralScale or {}
@@ -2636,6 +2666,35 @@ function MatchKeeperPresentationController:_buildReactionData(
 				+ (forwardVector * ((MatchKeeperConfig.GoalForwardAdvance or 0.65) * scaleCompensation))
 				+ Vector3.new(0, liftAmount, 0)
 
+			-- GoalHold: if KeeperSaveTarget exists and it's a goal hold, blend toward gripRootPosition so hand reaches holdPos
+			if keeperSaveTarget and isGoal and tostring(shootTier or "") == "Green" and MatchKeeperConfig.KeeperSaveTargetGripRootEnabled ~= false then
+				local gripRootPosition = BuildKeeperRootPositionForSaveTarget(
+					keeperModel,
+					self.BaseCFrame,
+					keeperSaveTargetPosition,
+					shotTargetId,
+					"Parry"
+				)
+				if gripRootPosition then
+					local maxDistance = tonumber(MatchKeeperConfig.KeeperSaveTargetRootMaxDistance) or 14.0
+					local rootDelta = gripRootPosition - keeperPos
+					if rootDelta.Magnitude > maxDistance then
+						gripRootPosition = keeperPos + rootDelta.Unit * maxDistance
+					end
+
+					local minY = keeperPos.Y + (tonumber(MatchKeeperConfig.KeeperSaveTargetRootMinLift) or 0.0)
+					local maxY = keeperPos.Y + (tonumber(MatchKeeperConfig.KeeperSaveTargetRootMaxLift) or 5.0)
+					local alpha = 1.0
+					local blendedRootPosition = diveAirPos:Lerp(gripRootPosition, alpha)
+
+					diveAirPos = Vector3.new(
+						blendedRootPosition.X,
+						math.clamp(blendedRootPosition.Y, minY, maxY),
+						blendedRootPosition.Z
+					)
+				end
+			end
+
 			local rollScale = math.clamp(scaleCompensation, 0.62, 1.0)
 			local goalRollSideSign = moveSideSign * (tonumber(MatchKeeperConfig.GoalDiveRollLateralSign) or 1)
 			rollAngle = goalRollSideSign < 0 and ((MatchKeeperConfig.GoalRollAngle or math.pi / 2.65) * rollScale)
@@ -2643,7 +2702,9 @@ function MatchKeeperPresentationController:_buildReactionData(
 		end
 
 		local tierDelayScale = tier == "Green" and 1.0 or tier == "Yellow" and 0.65 or 0.35
-		reactionDataDelay = (MatchKeeperConfig.WrongGuessDelay or 0.10) * tierDelayScale
+		-- GoalHold: keeper must dive immediately (no delay) so it arrives at InterceptCFrame
+		-- in sync with the ball. WrongGuessDelay is for wrong-guess saves only, not goal holds.
+		reactionDataDelay = 0
 	end
 
 	local isPowerBreakthrough = IsPowerBreakthroughEligible(isGoal, tier, shotTargetId, reactionAnimation)
@@ -2756,11 +2817,13 @@ function MatchKeeperPresentationController:_buildReactionData(
 		MoveSideSign = moveSideSign,
 		ForwardVector = forwardVector,
 		PowerBreakthrough = isPowerBreakthrough,
-		ContactMode = isPowerBreakthrough and "Breakthrough" or ((not isGoal) and "Catch" or nil),
+		ContactMode = isPowerBreakthrough and "Breakthrough"
+			or ((not isGoal) and "Catch"
+			or (isGoal and tostring(shootTier or "") == "Green" and "GoalHold" or nil)),
 		ContactMarkerName = isPowerBreakthrough
 				and (MatchKeeperConfig.PowerBreakthroughContactMarkerName or MatchKeeperConfig.CatchContactMarkerName or "CatchContact")
 			or (
-				not isGoal
+				tostring(shootTier or "") == "Green"
 					and (isCenter and (MatchKeeperConfig.CatchContactMarkerName or "CatchContact") or (MatchKeeperConfig.SaveContactMarkerName or "SaveContact"))
 				or nil
 			),
@@ -2798,7 +2861,7 @@ function MatchKeeperPresentationController:_runReactionSequence(
 		local markerFired = false
 		local markerConnection = nil
 		local reactionTrack = nil
-		local breakthroughPoseFrozen = false
+		local poseFrozen = false
 
 		local function freezeReactionAtContactPose()
 			if not reactionTrack then
@@ -2807,10 +2870,10 @@ function MatchKeeperPresentationController:_runReactionSequence(
 			if MatchKeeperConfig.FreezeSaveAnimationAtContact == false then
 				return
 			end
-			if breakthroughPoseFrozen then
+			if poseFrozen then
 				return
 			end
-			breakthroughPoseFrozen = true
+			poseFrozen = true
 
 			pcall(function()
 				reactionTrack.Looped = false
@@ -2832,14 +2895,24 @@ function MatchKeeperPresentationController:_runReactionSequence(
 		local shotTravelDuration = tonumber(contactOptions and contactOptions.ShotTravelDuration) or externalMinDelay
 		local diveDuration = tonumber(MatchKeeperConfig.DiveDuration) or 0.34
 		local animSpeed = 1
+		local defaultDiveDuration = tonumber(MatchKeeperConfig.DiveDuration) or 0.34
 
+		-- Sync dive duration to shot travel so keeper arrives at InterceptCFrame exactly when ball arrives.
 		if (reactionData.ContactMode or reactionData.IsGoal) and shotTravelDuration > 0.1 then
-			-- Synchronize keeper dive duration so the keeper finishes the jump EXACTLY when the ball arrives.
-			-- Subtract the DelayBeforeDive because the keeper waits before jumping.
 			diveDuration = math.max(shotTravelDuration - reactionData.DelayBeforeDive, 0.1)
-
-			local defaultDiveDuration = tonumber(MatchKeeperConfig.DiveDuration) or 0.34
 			animSpeed = defaultDiveDuration / diveDuration
+		end
+
+		if MatchKeeperConfig.DebugReaction == true and reactionData.ContactMode == "GoalHold" then
+			local holdAlpha = 0.72 -- must match MatchBallConfig.GoalHoldShot.HoldAlpha
+			local fallbackAlpha = tonumber(MatchKeeperConfig.GoalHoldFallbackFreezeAlpha) or 0.72
+			print(string.format(
+				"[GoalHold SYNC] shotTravel=%.3fs | diveDuration=%.3fs | freezeAt=%.3fs | ballArrivesAt=%.3fs | gap=%.3fs",
+				shotTravelDuration, diveDuration,
+				diveDuration * fallbackAlpha,
+				shotTravelDuration * holdAlpha,
+				(diveDuration * fallbackAlpha) - (shotTravelDuration * holdAlpha)
+			))
 		end
 
 		reactionTrack = self:_playAnimation(keeperModel, reactionData.ReactionAnimation or "Jump", animSpeed, {
@@ -2848,7 +2921,11 @@ function MatchKeeperPresentationController:_runReactionSequence(
 
 		markerConnection = ConnectKeeperContactMarker(reactionTrack, reactionData.ContactMarkerName, function()
 			markerFired = true
+			-- For Breakthrough AND GoalHold: freeze immediately when animation marker fires
 			if reactionData.PowerBreakthrough and ShouldUsePowerBreakthroughRagdoll() then
+				freezeReactionAtContactPose()
+			elseif reactionData.ContactMode == "GoalHold" then
+				-- GoalHold: freeze the animation mid-air as soon as hands reach the ball
 				freezeReactionAtContactPose()
 			end
 		end)
@@ -2867,7 +2944,76 @@ function MatchKeeperPresentationController:_runReactionSequence(
 		local interceptStartedAt = os.clock()
 
 		-- Wait for contact condition
-		if reactionData.ContactMode then
+		if reactionData.ContactMode == "GoalHold" then
+			-- PBS-style: wait until marker fires OR fallback alpha, then freeze mid-air and hold
+			local goalHoldFrozen = false
+			local goalHoldFreezeAt = nil
+			local goalHoldFallbackAlpha = math.clamp(
+				tonumber(MatchKeeperConfig.GoalHoldFallbackFreezeAlpha) or 0.72,
+				0.30, 0.98
+			)
+			local goalHoldDuration = math.max(
+				tonumber(contactOptions and contactOptions.GoalHoldDuration) or 5.0,
+				5.0
+			)
+
+			while self.ReactionId == reactionId and self.State == "React" do
+				local elapsed = os.clock() - interceptStartedAt
+
+				-- Trigger freeze when marker fires OR at fallback alpha of diveDuration
+				local shouldFreeze = markerFired or (elapsed >= diveDuration * goalHoldFallbackAlpha)
+				if shouldFreeze and not goalHoldFrozen then
+					goalHoldFrozen = true
+					goalHoldFreezeAt = os.clock()
+
+					-- Stop tween so keeper stays mid-air at current CFrame
+					self:_clearTweenState()
+
+					-- Freeze animation (AdjustSpeed = 0) — PBS: PauseGoalieAnimation()
+					freezeReactionAtContactPose()
+
+					-- Fire OnGoalHoldContact → triggers ball Phase 2 (HoldEffects + shake)
+					if not contactFired then
+						contactFired = true
+						local contactPoseCFrame = GetInstanceCFrame(keeperModel)
+						local goalHoldPayload = BuildKeeperContactPayload(
+							keeperModel,
+							reactionId,
+							reactionData,
+							ballTargetPosition,
+							markerFired and "marker" or "fallback",
+							nil
+						)
+						goalHoldPayload.KeeperContactCFrame = contactPoseCFrame
+						goalHoldPayload.KeeperSaveTargetPosition = reactionData.KeeperSaveTargetPosition
+
+						if contactOptions and contactOptions.OnGoalHoldContact then
+							task.spawn(function()
+								contactOptions.OnGoalHoldContact(goalHoldPayload)
+							end)
+						end
+					end
+				end
+
+				-- After freeze: wait for goalHoldDuration, then break to proceed to phase 3
+				if goalHoldFrozen and goalHoldFreezeAt then
+					if os.clock() - goalHoldFreezeAt >= goalHoldDuration or (self.CurrentKeeperState and self.CurrentKeeperState.KeeperDropped) then
+						break
+					end
+				end
+
+				RunService.RenderStepped:Wait()
+			end
+
+			-- After GoalHold: DO NOT proceed to landing/recovery.
+			-- The ball's OnHoldRelease fires triggerKeeperGoalImpactRagdoll which overrides everything.
+			-- We just need to clean up.
+			if markerConnection then
+				markerConnection:Disconnect()
+				markerConnection = nil
+			end
+			return
+		elseif reactionData.ContactMode then
 			while self.ReactionId == reactionId and self.State == "React" do
 				local elapsed = os.clock() - interceptStartedAt
 				if reactionData.PowerBreakthrough and ShouldUsePowerBreakthroughRagdoll() and not markerFired then
@@ -2885,7 +3031,7 @@ function MatchKeeperPresentationController:_runReactionSequence(
 				RunService.RenderStepped:Wait()
 			end
 		else
-			-- IsGoal: just wait diveDuration
+			-- IsGoal (no ContactMode): just wait diveDuration
 			task.wait(diveDuration)
 		end
 
@@ -2936,7 +3082,7 @@ function MatchKeeperPresentationController:_runReactionSequence(
 				contactPoseCFrame = AlignKeeperGripToSaveTargetAtContact(keeperModel, reactionData, ballTargetPosition)
 			end
 
-			if reactionData.ContactMode == "Catch" or reactionData.ContactMode == "Parry" then
+			if reactionData.ContactMode == "Catch" or reactionData.ContactMode == "Parry" or reactionData.ContactMode == "GoalHold" then
 				freezeReactionAtContactPose()
 			end
 
@@ -2974,6 +3120,8 @@ function MatchKeeperPresentationController:_runReactionSequence(
 				contactOptions.OnCatchContact(payload)
 			elseif reactionData.ContactMode == "Parry" and contactOptions and contactOptions.OnSaveContact then
 				contactOptions.OnSaveContact(payload)
+			elseif reactionData.ContactMode == "GoalHold" and contactOptions and contactOptions.OnGoalHoldContact then
+				contactOptions.OnGoalHoldContact(payload)
 			end
 		end
 
@@ -3513,6 +3661,9 @@ function MatchKeeperPresentationController:ReactToShot(
 
 	self.State = "React"
 	self.ReactionId += 1
+	self.CurrentKeeperState = {
+		KeeperDropped = false,
+	}
 
 	if self.StandbyConnection then
 		self.StandbyConnection:Disconnect()
@@ -3552,6 +3703,7 @@ function MatchKeeperPresentationController:StopAll()
 	self:_clearKeeperImpactLock()
 	self.State = "Idle"
 	self.ReactionId += 1
+	self.CurrentKeeperState = nil
 	-- Invalidate any in-flight BeginStandby task.spawn by bumping the token
 	self.StandbyToken = (self.StandbyToken or 0) + 1
 	local returnCFrame = self.BaseCFrame
@@ -3632,4 +3784,20 @@ function MatchKeeperPresentationController:KnitStart()
 		self:StopAll()
 	end)
 end
+function MatchKeeperPresentationController:DropKeeperFromGoalHold(keeperModel)
+	local keeperState = self.CurrentKeeperState
+	if keeperState then
+		keeperState.KeeperDropped = true
+	end
+	
+	-- Unanchor
+	if keeperModel then
+		local root = keeperModel:FindFirstChild("HumanoidRootPart", true)
+		if root and root:IsA("BasePart") then
+			root.Anchored = false
+			root.AssemblyLinearVelocity = Vector3.new(0, -2, 0)
+		end
+	end
+end
+
 return MatchKeeperPresentationController

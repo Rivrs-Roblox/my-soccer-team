@@ -6,13 +6,15 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 local LocalPlayer = Players.LocalPlayer
 
 local LOCAL_REFRESH_DELAYS = { 0, 0.15, 0.4 }
-local REMOTE_REFRESH_DELAYS = { 0, 0.15, 0.4, 0.8 }
+local REMOTE_REFRESH_DELAYS = { 0, 0.15, 0.4, 0.8, 1.5, 3.0 }
 
 local MatchVisibilityController = Knit.CreateController({
 	Name = "MatchVisibilityController",
 })
 
 local MatchCompanionVisualController = nil
+local SoccerCharactersController = nil
+local CoachesController = nil
 
 function MatchVisibilityController:_canControlVisibility()
 	return MatchCompanionVisualController
@@ -110,8 +112,41 @@ function MatchVisibilityController:_refreshRemoteState(player: Player)
 		return
 	end
 
+	if player:GetAttribute("IsInMatch") ~= true then
+		self:_refreshRemoteRenderedAssets(player)
+	end
+
 	self:_scheduleRefresh(player, REMOTE_REFRESH_DELAYS, function()
 		self:_applyRemoteState(player)
+	end)
+end
+
+function MatchVisibilityController:_refreshRemoteRenderedAssets(player: Player)
+	if not player or player == LocalPlayer then
+		return
+	end
+
+	local nextToken = (self._assetRefreshTokens[player] or 0) + 1
+	self._assetRefreshTokens[player] = nextToken
+
+	task.delay(0.2, function()
+		if not player.Parent or self._assetRefreshTokens[player] ~= nextToken then
+			return
+		end
+
+		if player:GetAttribute("IsInMatch") == true then
+			return
+		end
+
+		if SoccerCharactersController and SoccerCharactersController.RefreshEquippedCharacters then
+			SoccerCharactersController:RefreshEquippedCharacters(player)
+		end
+
+		task.delay(0.2, function()
+			if self:_canControlVisibility() and player.Parent and player:GetAttribute("IsInMatch") ~= true then
+				MatchCompanionVisualController:SetOwnerVisualHidden(player, false, true)
+			end
+		end)
 	end)
 end
 
@@ -192,10 +227,13 @@ end
 function MatchVisibilityController:KnitInit()
 	self._connections = {}
 	self._refreshTokens = {}
+	self._assetRefreshTokens = {}
 end
 
 function MatchVisibilityController:KnitStart()
 	MatchCompanionVisualController = Knit.GetController("MatchCompanionVisualController")
+	SoccerCharactersController = Knit.GetController("SoccerCharactersController")
+	CoachesController = Knit.GetController("CoachesController")
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:_watchPlayer(player)
@@ -208,6 +246,47 @@ function MatchVisibilityController:KnitStart()
 	Players.PlayerRemoving:Connect(function(player)
 		self:_unwatchPlayer(player)
 	end)
+
+	local soccerController = SoccerCharactersController
+	if soccerController and soccerController.SoccerCharacterInstances then
+		soccerController.SoccerCharacterInstances.ChildAdded:Connect(function(child)
+			if child:IsA("Model") then
+				local ownerName = child:GetAttribute("Owner")
+				if ownerName then
+					local player = Players:FindFirstChild(ownerName)
+					if player and player ~= LocalPlayer then
+						if self:_canControlVisibility() then
+							MatchCompanionVisualController:SetOwnerVisualHidden(
+								player,
+								player:GetAttribute("IsInMatch") == true,
+								true
+							)
+						end
+					end
+				end
+			end
+		end)
+	end
+
+	if CoachesController and CoachesController.CoachInstances then
+		CoachesController.CoachInstances.ChildAdded:Connect(function(child)
+			if child:IsA("Model") then
+				local ownerName = child:GetAttribute("Owner")
+				if ownerName then
+					local player = Players:FindFirstChild(ownerName)
+					if player and player ~= LocalPlayer then
+						if self:_canControlVisibility() then
+							MatchCompanionVisualController:SetOwnerVisualHidden(
+								player,
+								player:GetAttribute("IsInMatch") == true,
+								true
+							)
+						end
+					end
+				end
+			end
+		end)
+	end
 end
 
 return MatchVisibilityController

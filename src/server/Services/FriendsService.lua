@@ -102,11 +102,31 @@ function FriendsService:KnitStart()
 
 	self.Template = DataCacheService:GetFile("Template")
 
+	-- Handle player yang sudah ada sebelum KnitStart
+	for _, player in Players:GetPlayers() do
+		task.spawn(function()
+			local joinData = player:GetJoinData()
+			if joinData.ReferredByPlayerId then
+				local ok, err = pcall(function()
+					self:GiveRewards(joinData.ReferredByPlayerId, player)
+				end)
+				if not ok then
+					warn("[FRIENDS SERVICE] Failed to give rewards: " .. tostring(err))
+				end
+			end
+		end)
+	end
+
 	Players.PlayerAdded:Connect(function(player)
 		local joinData = player:GetJoinData()
 
 		if joinData.ReferredByPlayerId then
-			self:GiveRewards(joinData.ReferredByPlayerId, player)
+			local ok, err = pcall(function()
+				self:GiveRewards(joinData.ReferredByPlayerId, player)
+			end)
+			if not ok then
+				warn("[FRIENDS SERVICE] Failed to give rewards: " .. tostring(err))
+			end
 		end
 	end)
 end

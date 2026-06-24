@@ -8,7 +8,9 @@ local TrainingConfig = {
 	-- Animation IDs
 	Animations = {
 		DefaultIdle = "rbxassetid://507766388",
-		DefaultRun = "rbxassetid://105106002784990",
+		DefaultWalk = "rbxassetid://913402848",
+		DefaultRun = "rbxassetid://507767714",
+		DefaultDribble = "rbxassetid://105106002784990",
 		DefaultJump = "rbxassetid://507765000",
 		DefaultFall = "rbxassetid://507767968",
 		DefaultShoot = "rbxassetid://90962989306225",
@@ -34,7 +36,7 @@ local TrainingConfig = {
 		PassTriggerProgress = 0.20,
 		PassBallTweenTime = 0.30,
 		DribbleNodeSwitchDistance = 0.90,
-	}
+	},
 }
 
 return TrainingConfig

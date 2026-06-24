@@ -5,7 +5,6 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local MatchShootCinematicDirector = {}
-local DEBUG_SHOOT_FLOW = false
 
 -- // [ STATE ] // --
 
@@ -881,9 +880,6 @@ function MatchShootCinematicDirector.PlayNormalShootCinematic(context)
 	-- Phase 2: Wind-up (Trigger AFTER camera is in position)
 	local windupPlayed = false
 	local kickWindupResult = nil
-	if DEBUG_SHOOT_FLOW then
-		print("[SHOOT FLOW] windup start", "token=", token)
-	end
 	if type(context.OnKickWindup) == "function" and activeToken == token and not windupPlayed then
 		windupPlayed = true
 		kickWindupResult = context.OnKickWindup()
@@ -905,10 +901,6 @@ function MatchShootCinematicDirector.PlayNormalShootCinematic(context)
 	end
 
 	local impactGate = createImpactGate(token, kickStartedAt, impactDelay, function(reason, parameter)
-		if DEBUG_SHOOT_FLOW then
-			print("[SHOOT FLOW] impact", "token=", token, "reason=", reason or "timer")
-			print("[SHOOT FLOW] ball release", "token=", token)
-		end
 		if type(context.OnImpact) == "function" then
 			context.OnImpact(reason, parameter)
 		end
@@ -947,10 +939,6 @@ function MatchShootCinematicDirector.PlayNormalShootCinematic(context)
 		return
 	end
 
-	if DEBUG_SHOOT_FLOW then
-		print("[SHOOT FLOW] follow start", "token=", token)
-	end
-
 	-- Phase 4: Ball Follow Start
 	task.wait(BALL_FOLLOW_AFTER_IMPACT_DELAY)
 
@@ -972,10 +960,6 @@ function MatchShootCinematicDirector.PlayNormalShootCinematic(context)
 
 	if activeToken ~= token or not isAlive(context) then
 		return
-	end
-
-	if DEBUG_SHOOT_FLOW then
-		print("[SHOOT FLOW] near keeper", "token=", token)
 	end
 
 	local resultCFrame = activeCameraCFrame or camera.CFrame
@@ -1000,10 +984,6 @@ function MatchShootCinematicDirector.PlayNormalShootCinematic(context)
 
 	if activeToken ~= token or not isAlive(context) then
 		return
-	end
-
-	if DEBUG_SHOOT_FLOW then
-		print("[SHOOT FLOW] result", "token=", token, "result=finished")
 	end
 
 	-- Phase 6: Return
@@ -1034,9 +1014,6 @@ function MatchShootCinematicDirector.PlayNormalShootCinematic(context)
 	end
 
 	if activeToken == token then
-		if DEBUG_SHOOT_FLOW then
-			print("[SHOOT FLOW] cleanup", "token=", token)
-		end
 		finishCinematic(context.KeepCameraLockedAfterFinish == true)
 	end
 end

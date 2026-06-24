@@ -97,13 +97,17 @@ function TutorialController:CreateTutorialFrame(visible: true)
 	if self.Template.Tutorial[currentTutorialStep].Target > 0 then
 		if currentTutorialStep == 3 then
 			DataService:GetData(player):andThen(function(playerData)
-				CountText.Text = playerData.Stats.Shoot .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
+				CountText.Text = playerData.Stats.Stamina .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
 			end)
 		elseif currentTutorialStep == 4 then
 			DataService:GetData(player):andThen(function(playerData)
-				CountText.Text = playerData.Stats.Pass .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
+				CountText.Text = playerData.Stats.Shoot .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
 			end)
 		elseif currentTutorialStep == 5 then
+			DataService:GetData(player):andThen(function(playerData)
+				CountText.Text = playerData.Stats.Pass .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
+			end)
+		elseif currentTutorialStep == 6 then
 			DataService:GetData(player):andThen(function(playerData)
 				CountText.Text = playerData.Stats.Dribble .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
 			end)
@@ -275,13 +279,19 @@ function TutorialController:TweenFrameOut()
 		else
 			if currentTutorialStep == 3 then
 				DataService:GetData(player):andThen(function(playerData)
-					CountText.Text = playerData.Stats.Shoot .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
+					CountText.Text = playerData.Stats.Stamina
+						.. "/"
+						.. self.Template.Tutorial[currentTutorialStep].Target
 				end)
 			elseif currentTutorialStep == 4 then
 				DataService:GetData(player):andThen(function(playerData)
-					CountText.Text = playerData.Stats.Pass .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
+					CountText.Text = playerData.Stats.Shoot .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
 				end)
 			elseif currentTutorialStep == 5 then
+				DataService:GetData(player):andThen(function(playerData)
+					CountText.Text = playerData.Stats.Pass .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
+				end)
+			elseif currentTutorialStep == 6 then
 				DataService:GetData(player):andThen(function(playerData)
 					CountText.Text = playerData.Stats.Dribble
 						.. "/"
@@ -353,7 +363,7 @@ function TutorialController:UpdateUIHighlight()
 
 			UIHighlighter.StopAll()
 		end)
-	elseif currentTutorialStep == 7 then
+	elseif currentTutorialStep == 8 then
 		local packButton = playerGui
 			:WaitForChild("GameScreenGui")
 			:WaitForChild("HUD")
@@ -370,7 +380,7 @@ function TutorialController:UpdateUIHighlight()
 			:WaitForChild("1")
 
 		task.spawn(function()
-			while currentTutorialStep == 7 do
+			while currentTutorialStep == 8 do
 				local currentUI = Store:getState().UIReducer.CurrentUI
 
 				if currentUI == nil or currentUI == "" then
@@ -386,7 +396,7 @@ function TutorialController:UpdateUIHighlight()
 
 			UIHighlighter.StopAll()
 		end)
-	elseif currentTutorialStep == 8 then
+	elseif currentTutorialStep == 9 then
 		local teamButton = playerGui
 			:WaitForChild("GameScreenGui")
 			:WaitForChild("HUD")
@@ -402,7 +412,7 @@ function TutorialController:UpdateUIHighlight()
 			:WaitForChild("EquipBest")
 
 		task.spawn(function()
-			while currentTutorialStep == 8 do
+			while currentTutorialStep == 9 do
 				local currentUI = Store:getState().UIReducer.CurrentUI
 				local currentCustomizeUI = Store:getState().UIReducer.CurrentCustomizeUI
 
@@ -419,7 +429,7 @@ function TutorialController:UpdateUIHighlight()
 
 			UIHighlighter.StopAll()
 		end)
-	elseif currentTutorialStep == 10 then
+	elseif currentTutorialStep == 11 then
 		local accessoriesButton = playerGui
 			:WaitForChild("GameScreenGui")
 			:WaitForChild("HUD")
@@ -437,7 +447,7 @@ function TutorialController:UpdateUIHighlight()
 			:WaitForChild("EquipBest")
 
 		task.spawn(function()
-			while currentTutorialStep == 10 do
+			while currentTutorialStep == 11 do
 				local currentUI = Store:getState().UIReducer.CurrentUI
 				local currentCustomizeUI = Store:getState().UIReducer.CurrentCustomizeUI
 
@@ -583,21 +593,28 @@ function TutorialController:KnitStart()
 			end)
 
 			PlayerStatsService.StatUpdated:Connect(function(stat, value)
-				if currentTutorialStep == 3 and stat == "Shoot" then
+				if currentTutorialStep == 3 and stat == "Stamina" then
 					local formatedValue = FormatNumber(value)
 					CountText.Text = formatedValue .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
 
 					if value >= self.Template.Tutorial[currentTutorialStep].Target then
 						self:TutorialNextStep(false)
 					end
-				elseif currentTutorialStep == 4 and stat == "Pass" then
+				elseif currentTutorialStep == 4 and stat == "Shoot" then
 					local formatedValue = FormatNumber(value)
 					CountText.Text = formatedValue .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
 
 					if value >= self.Template.Tutorial[currentTutorialStep].Target then
 						self:TutorialNextStep(false)
 					end
-				elseif currentTutorialStep == 5 and stat == "Dribble" then
+				elseif currentTutorialStep == 5 and stat == "Pass" then
+					local formatedValue = FormatNumber(value)
+					CountText.Text = formatedValue .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
+
+					if value >= self.Template.Tutorial[currentTutorialStep].Target then
+						self:TutorialNextStep(false)
+					end
+				elseif currentTutorialStep == 6 and stat == "Dribble" then
 					local formatedValue = FormatNumber(value)
 					CountText.Text = formatedValue .. "/" .. self.Template.Tutorial[currentTutorialStep].Target
 

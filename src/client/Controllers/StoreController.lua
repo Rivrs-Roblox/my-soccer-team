@@ -40,15 +40,29 @@ function StoreController:BuyItem(params: table)
 		return
 	end
 
+	if UIController and UIController.IsPanelOpenBlocked and UIController:IsPanelOpenBlocked() then
+		return
+	end
+
 	local res = MonetizationController:GetID(params.name)
 
 	if res ~= nil then
+		if MonetizationController.MarkPurchasePromptStarted then
+			MonetizationController:MarkPurchasePromptStarted()
+		end
+
 		local p, r = MonetizationService:PromptPurchase(res.ID, res.Type):await()
 		if p == false then
+			if MonetizationController.MarkPurchasePromptFinished then
+				MonetizationController:MarkPurchasePromptFinished()
+			end
 			return warn("[STORE CONTROLLER] An internal error occured while prompting for purchase.")
 		end
 
 		if r ~= nil then
+			if MonetizationController.MarkPurchasePromptFinished then
+				MonetizationController:MarkPurchasePromptFinished()
+			end
 			NotificationController:Notify(r)
 		end
 	end

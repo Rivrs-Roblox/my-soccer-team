@@ -20,7 +20,7 @@ function UIHighlighter.Highlight(guiObject: GuiObject)
 		return
 	end
 
-	local highlightTemplate = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("GUIs"):FindFirstChild("Highlight")
+	local highlightTemplate = ReplicatedStorage:FindFirstChild("Highlight", true)
 	if not highlightTemplate then
 		warn("UIHighlighter: ReplicatedStorage.Highlight not found!")
 		return
@@ -63,7 +63,7 @@ function UIHighlighter.HighlightHere(id: string, size: UDim2, position: UDim2, p
 		return
 	end
 
-	local highlightTemplate = ReplicatedStorage:FindFirstChild("Highlight")
+	local highlightTemplate = ReplicatedStorage:FindFirstChild("Highlight", true)
 	if not highlightTemplate then
 		warn("UIHighlighter: ReplicatedStorage.Highlight not found!")
 		return

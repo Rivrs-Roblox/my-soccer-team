@@ -17,4 +17,10 @@ return table.freeze({
 	["x2_Pass_Boost"] = {
 		Duration = 60 * 30,
 	},
+	["x2_Stamina_Boost"] = {
+		Duration = 60 * 30,
+	},
+	["x2_Endurance_Boost"] = {
+		Duration = 60 * 30,
+	},
 })

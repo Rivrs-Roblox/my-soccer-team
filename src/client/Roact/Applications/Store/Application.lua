@@ -86,7 +86,7 @@ function Store(_, hooks)
 				Size = UDim2.fromScale(0.95, 0.705),
 				Position = UDim2.fromScale(0.5, 0.98),
 				BorderSizePixel = 0,
-				CanvasSize = UDim2.fromScale(0, 7.7),
+				CanvasSize = UDim2.fromScale(0, 8.2),
 				[Roact.Ref] = scrollRef.value,
 				[Roact.Change.CanvasPosition] = function(rbx)
 					local closest = activeSection

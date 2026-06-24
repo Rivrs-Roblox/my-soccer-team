@@ -42,6 +42,19 @@ local MatchBallConfig = {
 	},
 
 	HoldEffectEmitCount = 28,
+
+	GoalHoldShot = {
+		Enabled = true,
+		HoldAlpha = 0.72,
+		HoldDurationYellow = 0.8,
+		HoldDurationGreen = 1.2,
+		HoldDurationSpecial = 1.8,
+		Phase2SpeedMultiplier = 1.45,
+		HoldShakeStrength = 0.35,
+		ReleaseShakeStrength = 2.0,
+		ReleaseShakeDuration = 0.65,
+		HoldSpinSpeed = 22.5, -- 5x dari sebelumnya (4.5 → 22.5)
+	},
 }
 
 return MatchBallConfig

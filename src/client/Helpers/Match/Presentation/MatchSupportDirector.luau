@@ -22,9 +22,6 @@ return function(MatchPresentationController, Context)
 	local THROUGH_PASS_DISTANCE_STEP_2 = Constants.THROUGH_PASS_DISTANCE_STEP_2
 	local THROUGH_PASS_DISTANCE_STEP_3 = Constants.THROUGH_PASS_DISTANCE_STEP_3
 	local THROUGH_PASS_MAX_OVERSHOOT_STEP_3 = Constants.THROUGH_PASS_MAX_OVERSHOOT_STEP_3
-	local DEBUG_ZONE3_RUNNER = false
-
-
 	local ApplyPivot = Utils.ApplyPivot
 	local GetGroundedPosition = Utils.GetGroundedPosition
 	local GetFlatDistance = Utils.GetFlatDistance
@@ -872,18 +869,6 @@ end
 		local lookTarget = carryMarker and carryMarker.Position or (desiredPos + attackDirection)
 		lookTarget = Vector3.new(lookTarget.X, desiredPos.Y, lookTarget.Z)
 
-		if DEBUG_ZONE3_RUNNER and (isReturnThroughBall or isPlayer2BranchPass) then
-			local currentPos = self:_getActorWorldPositionBySlot(targetSlot, targetModel:GetPivot().Position)
-			print(isPlayer2BranchPass and "[QTE4 PLAYER2 BRANCH PASS]" or "[QTE4 RETURN PASS]",
-				"fromSlot=", payload.ActorSlot,
-				"targetSlot=", targetSlot,
-				"receiveMarker=ReceivePoint2",
-				"slot3CurrentPos=", currentPos,
-				"receivePos=", desiredPos,
-				"carrierPoint2=", carryMarker and carryMarker.Position or "nil"
-			)
-		end
-
 		return MatchMotionMath.BuildFlatLookAtCFrame(desiredPos, lookTarget)
 	end
 
@@ -1008,14 +993,6 @@ end
 			local lookTarget = actualTargetPos + attackDirection
 			local targetCFrame = MatchMotionMath.BuildFlatLookAtCFrame(actualTargetPos, lookTarget)
 
-			if DEBUG_ZONE3_RUNNER then
-				print("[ZONE3 RUNNER] start overlap",
-					"runnerSlot=", runnerSlot,
-					"targetMarker=CarrierPoint2",
-					"targetPos=", targetPos
-				)
-			end
-
 			local usedRuntime = self:_applyActorCFrame(
 				runnerSlot,
 				runnerModel,
@@ -1030,24 +1007,8 @@ end
 			)
 
 			if usedRuntime then
-				if DEBUG_ZONE3_RUNNER then
-					print("[ZONE3 RUNNER] SetLocalMatchActorTarget",
-						"slot=", runnerSlot,
-						"speed=", sprintSpeed,
-						"keepAnim=", true,
-						"expectedAnim=Run"
-					)
-				end
 				return runnerSlot
 			end
-		end
-
-		if DEBUG_ZONE3_RUNNER then
-			print("[ZONE3 RUNNER] start overlap (task.spawn fallback)",
-				"runnerSlot=", runnerSlot,
-				"targetMarker=CarrierPoint2",
-				"targetPos=", targetPos
-			)
 		end
 
 		task.spawn(function()

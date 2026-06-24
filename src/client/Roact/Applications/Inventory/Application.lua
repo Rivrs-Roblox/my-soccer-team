@@ -30,15 +30,22 @@ local Accessories = require(Frames.Accessories)
 local Boosts = require(Frames.Boosts)
 
 function Inventory(_, hooks)
-	local UIReducer = RoduxHooks.useSelector(hooks, function(state)
-		return state.UIReducer
+	local currentUI = RoduxHooks.useSelector(hooks, function(state)
+		return state.UIReducer.CurrentUI
 	end)
 	local InventoryReducer = RoduxHooks.useSelector(hooks, function(state)
 		return state.InventoryReducer
 	end)
 
+	hooks.useEffect(function()
+		if currentUI ~= FrameConstants.Inventory then
+			Store:dispatch(InventoryActions.setDeletingCharacters(false))
+			Store:dispatch(InventoryActions.setDeletingAccessories(false))
+		end
+	end, { currentUI or "" })
+
 	return Roact.createElement("Frame", {
-		Visible = UIReducer.CurrentUI == FrameConstants.Inventory,
+		Visible = currentUI == FrameConstants.Inventory,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundTransparency = 1,
 		Position = UDim2.fromScale(0.5, 0.5),

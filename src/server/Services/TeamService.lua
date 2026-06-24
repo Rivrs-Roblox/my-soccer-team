@@ -5,6 +5,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Signal = require(ReplicatedStorage.Packages.Signal)
 
+-- Helpers
+local GetStats = require(ReplicatedStorage.Shared.Helpers.SoccerCharacters.GetStats)
+
 -- Knit Services
 local DataService
 local DataCacheService
@@ -38,7 +41,12 @@ function TeamService:SetSlot(player: Player, slot: number, characterId: number)
 
 	local previousId = playerData.Inventory.EquippedSoccerCharacters[slot]
 	if previousId and previousId ~= characterId then
-		self.CharacterRemovedFromTeam:Fire(player, previousId)
+		if characterId then
+			local AccessoryService = Knit.GetService("AccessoryService")
+			AccessoryService:TransferAccessories(player, previousId, characterId)
+		else
+			self.CharacterRemovedFromTeam:Fire(player, previousId)
+		end
 	end
 
 	playerData.Inventory.EquippedSoccerCharacters[slot] = characterId
@@ -58,10 +66,15 @@ function TeamService:EquipBest(player: Player)
 	local inventory = playerData.Inventory.SoccerCharacters
 	local equipped = playerData.Inventory.EquippedSoccerCharacters
 
-	-- Unequip accessories from previously equipped characters
-	for _, id in pairs(equipped) do
-		if id then
-			self.CharacterRemovedFromTeam:Fire(player, id)
+	local previousEquipped = table.clone(equipped)
+	local slotAccessories = {}
+
+	-- Extract accessories for each slot and clear them from the characters
+	for slot, id in pairs(previousEquipped) do
+		local char = inventory[id] or inventory[tostring(id)] or inventory[tonumber(id)]
+		if char and char.Accessories then
+			slotAccessories[slot] = table.clone(char.Accessories)
+			char.Accessories = {}
 		end
 	end
 
@@ -80,13 +93,12 @@ function TeamService:EquipBest(player: Player)
 				continue
 			end
 
-			local template = self.Template.SoccerCharacters[charData.Name]
-			if template then
-				local totalMultiplier = 0
+			local stats = GetStats(charData)
+			if stats then
+				local totalValue = 0
 				for _, statName in ipairs(statNames) do
-					totalMultiplier += (template.Multipliers[statName] or 0)
+					totalValue += (stats[statName] or 0)
 				end
-				local totalValue = totalMultiplier * charData.Level
 
 				if totalValue > bestValue then
 					bestValue = totalValue
@@ -101,14 +113,69 @@ function TeamService:EquipBest(player: Player)
 		return bestId
 	end
 
+	local newEquipped = {}
 	-- Slot 1: Highest Shoot
-	equipped[1] = getBestForStat("Shoot")
+	newEquipped[1] = getBestForStat("Shoot")
 
 	-- Slot 2: Highest Dribble + Pass
-	equipped[2] = getBestForStat("Dribble", "Pass")
+	newEquipped[2] = getBestForStat("Dribble", "Pass")
 
 	-- Slot 3: Highest Dribble + Pass
-	equipped[3] = getBestForStat("Dribble", "Pass")
+	newEquipped[3] = getBestForStat("Dribble", "Pass")
+
+	local changedAccessories = false
+
+	for slot = 1, 3 do
+		local newId = newEquipped[slot]
+		local newChar = nil
+		if newId then
+			newChar = inventory[newId] or inventory[tostring(newId)] or inventory[tonumber(newId)]
+		end
+		
+		local accessoriesToApply = slotAccessories[slot]
+		
+		if newChar then
+			-- Unequip whatever the new character had
+			if newChar.Accessories then
+				for _, aid in pairs(newChar.Accessories) do
+					local invItem = playerData.Inventory.Accessories[aid] or playerData.Inventory.Accessories[tostring(aid)] or playerData.Inventory.Accessories[tonumber(aid)]
+					if invItem then invItem.Equipped = false end
+					changedAccessories = true
+				end
+			end
+			
+			newChar.Accessories = {}
+			
+			-- Equip the cached slot accessories
+			if accessoriesToApply then
+				for accSlot, aid in pairs(accessoriesToApply) do
+					newChar.Accessories[accSlot] = tostring(aid)
+					local invItem = playerData.Inventory.Accessories[aid] or playerData.Inventory.Accessories[tostring(aid)] or playerData.Inventory.Accessories[tonumber(aid)]
+					if invItem then invItem.Equipped = true end
+					changedAccessories = true
+				end
+			end
+		else
+			-- If slot is empty, mark cached accessories as unequipped
+			if accessoriesToApply then
+				for accSlot, aid in pairs(accessoriesToApply) do
+					local invItem = playerData.Inventory.Accessories[aid] or playerData.Inventory.Accessories[tostring(aid)] or playerData.Inventory.Accessories[tonumber(aid)]
+					if invItem then invItem.Equipped = false end
+					changedAccessories = true
+				end
+			end
+		end
+		
+		if newId then
+			equipped[slot] = newId
+		end
+	end
+
+	if changedAccessories then
+		local AccessoryService = Knit.GetService("AccessoryService")
+		AccessoryService.Client.AccessoriesUpdated:Fire(player, playerData.Inventory.Accessories)
+		AccessoryService.SoccerCharactersChanged:Fire(player, inventory)
+	end
 
 	self.Client.TeamSlotSet:FireAll(player, equipped)
 	return true

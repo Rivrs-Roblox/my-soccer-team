@@ -1,11 +1,13 @@
 local ShootTrainingRuntime = require(script.Parent.ShootTrainingRuntime)
 local PassTrainingRuntime = require(script.Parent.PassTrainingRuntime)
 local DribbleTrainingRuntime = require(script.Parent.DribbleTrainingRuntime)
+local StaminaTrainingRuntime = require(script.Parent.StaminaTrainingRuntime)
 
 local runtimesByStatType = {
 	Shoot = ShootTrainingRuntime,
 	Pass = PassTrainingRuntime,
 	Dribble = DribbleTrainingRuntime,
+	Stamina = StaminaTrainingRuntime,
 }
 
 local TrainingRuntimeRegistry = {}

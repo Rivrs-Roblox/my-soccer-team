@@ -31,17 +31,17 @@ return function(params: table)
     })
 
     children.UIPadding = Roact.createElement("UIPadding", {
-        PaddingTop = UDim.new(0.03, 0),
-        PaddingBottom = UDim.new(0.03, 0),
-        PaddingLeft = UDim.new(0.03, 0),
-        PaddingRight = UDim.new(0.03, 0),
+        PaddingTop = UDim.new(0, 6),
+        PaddingBottom = UDim.new(0, 6),
+        PaddingLeft = UDim.new(0, 8),
+        PaddingRight = UDim.new(0, 8),
     })
 
     children.Grid = Roact.createElement("UIGridLayout", {
         SortOrder = Enum.SortOrder.LayoutOrder,
-        CellSize = UDim2.fromScale(0.2, 0.25),
+        CellSize = UDim2.fromScale(0.21, 0.21),
         FillDirectionMaxCells = MAX_CELLS_PER_ROW,
-        CellPadding = UDim2.fromScale(0.04, 0.04),
+        CellPadding = UDim2.fromOffset(10, 10),
         HorizontalAlignment = Enum.HorizontalAlignment.Left,
     })
 

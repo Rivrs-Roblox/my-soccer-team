@@ -5,6 +5,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Signal = require(ReplicatedStorage.Packages.Signal)
 local GachaConfig = require(ReplicatedStorage.Shared.Data.GachaConfig)
+local GetFinalChanceWeights = require(ReplicatedStorage.Shared.Helpers.Chances.GetFinalChanceWeights)
+local GetLuckChanceMultiplier = require(ReplicatedStorage.Shared.Helpers.Chances.GetLuckChanceMultiplier)
 
 -- Services
 local DataService
@@ -63,11 +65,30 @@ function GachaService:BuyGacha(player: Player, category: string, type: string, c
 
 	if gacha.Prerequisite then
 		for key, reqValue in pairs(gacha.Prerequisite) do
-			if (data[key] or 0) < reqValue then
-				return {
-					text = self.Template.Messages.Notifications.Prerequisite_Not_Met(reqValue, key),
-					type = "ERROR",
-				}
+			if key == "Area" and type(reqValue) == "string" then
+				local isUnlocked = false
+				if data.Areas and data.Areas.Unlocked then
+					for _, unlockedArea in ipairs(data.Areas.Unlocked) do
+						if unlockedArea == reqValue then
+							isUnlocked = true
+							break
+						end
+					end
+				end
+				if not isUnlocked then
+					local areaName = self.Template.Areas and self.Template.Areas[reqValue] and self.Template.Areas[reqValue].Name or reqValue
+					return {
+						text = "You must unlock " .. areaName .. " first!",
+						type = "ERROR",
+					}
+				end
+			else
+				if (data[key] or 0) < reqValue then
+					return {
+						text = self.Template.Messages.Notifications.Prerequisite_Not_Met(reqValue, key),
+						type = "ERROR",
+					}
+				end
 			end
 		end
 	end
@@ -99,15 +120,9 @@ function GachaService:BuyGacha(player: Player, category: string, type: string, c
 end
 
 function GachaService:_getLuckMultiplier(player: Player)
-	local multiplier = 1
-
-	for passName, bonus in pairs(self.GlobalConfig.LuckMultipliers) do
-		if MonetizationService:HasGamepass(player, passName) then
-			multiplier += bonus
-		end
-	end
-
-	return multiplier
+	local data = DataService:GetData(player)
+	local gamepasses = data and data.Gamepasses or {}
+	return GetLuckChanceMultiplier(gamepasses, self.GlobalConfig.LuckMultipliers)
 end
 
 function GachaService:OpenGacha(player: Player, category: string, type: string, amount: number)
@@ -132,20 +147,13 @@ function GachaService:OpenGacha(player: Player, category: string, type: string, 
 	end
 
 	local luckMultiplier = self:_getLuckMultiplier(player)
+	local chances = GetFinalChanceWeights(gacha.Chances, luckMultiplier)
 
 	for _ = 1, amount do
-		-- Roll Rarity
+		-- Roll Rarity using normalized final chances
 		local totalWeight = 0
-		local chances = {}
-
-		for rarity, weight in pairs(gacha.Chances) do
-			local modifiedWeight = weight
-			if rarity ~= "Common" then
-				modifiedWeight *= luckMultiplier
-			end
-
-			chances[rarity] = modifiedWeight
-			totalWeight += modifiedWeight
+		for _, weight in pairs(chances) do
+			totalWeight += weight
 		end
 
 		if totalWeight == 0 then

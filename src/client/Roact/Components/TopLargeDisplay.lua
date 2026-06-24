@@ -133,6 +133,10 @@ local function TopLargeDisplay(props, hooks)
 						UIGradient = Gradient({ endColor = Color3.fromRGB(255, 206, 10), roatation = 0 }),
 					},
 					action = function()
+						if UIController:IsPanelOpenBlocked() then
+							return
+						end
+
 						if props.bottomText ~= "Rebirths" then
 							UIController:ShowFrame({ frame = "Store" })
 							UIController:RemoveHUD({ ignoreTopFrame = true })

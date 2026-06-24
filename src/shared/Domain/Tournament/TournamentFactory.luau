@@ -3,6 +3,7 @@
 -- Creates a deterministic 16-team knockout bracket without touching Roblox APIs.
 
 local TournamentConfig = require(script.Parent.TournamentConfig)
+local TournamentRules = require(script.Parent.TournamentRules)
 
 local TournamentFactory = {}
 
@@ -108,6 +109,13 @@ function TournamentFactory.Create(params)
 		if homeTeam and awayTeam then
 			local isPlayerMatch = homeTeam.IsPlayer == true or awayTeam.IsPlayer == true
 			firstRoundMatches[matchIndex] = BuildMatch(firstRound, 1, matchIndex, homeTeam, awayTeam, isPlayerMatch)
+		end
+	end
+
+	-- Initialize multi-leg aggregate for the player's R16 match.
+	for _, match in ipairs(firstRoundMatches) do
+		if match.IsPlayerMatch then
+			TournamentRules.InitializeRoundAggregate(match, seed + 7919)
 		end
 	end
 

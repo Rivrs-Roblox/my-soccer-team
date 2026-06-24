@@ -599,7 +599,6 @@ return function(MatchPresentationController, Context)
 				targets.ActorLookPos
 			)
 
-			self:_debugFlow(payload, "dribble resolve continued without post-pause")
 			if DRIBBLE_SUCCESS_SETTLE_SECONDS > 0 then
 				self:_waitForSessionSeconds(payload.SessionId, DRIBBLE_SUCCESS_SETTLE_SECONDS)
 			end
@@ -630,7 +629,6 @@ return function(MatchPresentationController, Context)
 			10
 		)
 
-		self:_debugFlow(payload, "dribble failed carry-away settled")
 		self:_waitForSessionSeconds(payload.SessionId, 0.18)
 	end
 
@@ -1388,8 +1386,6 @@ return function(MatchPresentationController, Context)
 			self.MatchBallController:PlayArc(ballPosition or landingPosition, looseTargetPos, LOOSE_PASS_ROLL_DURATION, 0.28)
 		end
 
-		self:_debugFlow(payload, "pass loose receive " .. tostring(receiveMode))
-
 		local chaseStartedAt = os.clock()
 		local nextTargetRefreshAt = 0
 
@@ -1967,7 +1963,6 @@ return function(MatchPresentationController, Context)
 			}
 		)
 
-		self:_debugFlow(payload, "return receiver carry " .. targetMode)
 	end
 
 	function MatchPresentationController:_runTeamChaseAndLoseAfterTurnover(payload, enemyModel, chaseWorldPosition, chaseSlots)
@@ -2114,16 +2109,6 @@ return function(MatchPresentationController, Context)
 			Volume = isGreenPass and 0.85 or 0.75,
 			Lifetime = 3,
 		})
-
-		if self.DebugFlow and tonumber(payload.StepIndex) == 3 then
-			print("[ZONE3 RUNNER] qte3 pass resolved",
-				"session=", payload.SessionId,
-				"step=", payload.StepIndex,
-				"actor=", payload.ActorSlot,
-				"target=", payload.TargetSlot,
-				"runnerSlot=", payload.Zone3RunnerSlot or 3
-			)
-		end
 
 		local targetModel = self:_getControlledActorModel(payload.TargetSlot)
 			or MatchActorResolver.GetActorModelBySlot(payload.TargetSlot, self.PlayerProxy)
@@ -2322,8 +2307,6 @@ return function(MatchPresentationController, Context)
 			end
 		end
 
-		self:_debugFlow(payload, string.format("pass arc started duration=%.2f", passDuration or 0))
-
 		if success then
 			self.ActiveActorSlot = tonumber(payload.TargetSlot) or self.ActiveActorSlot
 			self.CurrentPresentationStepIndex = tonumber(payload.StepIndex) or self.CurrentPresentationStepIndex
@@ -2363,7 +2346,6 @@ return function(MatchPresentationController, Context)
 			self:_continueReturnReceiverToCarryPoint(payload, payload.TargetSlot, targetModel)
 
 			self:_waitForSessionSeconds(payload.SessionId, 0.04)
-			self:_debugFlow(payload, "pass receive settled")
 			return
 		end
 
@@ -2382,7 +2364,6 @@ return function(MatchPresentationController, Context)
 		)
 
 		self:_waitForSessionSeconds(payload.SessionId, 0.18)
-		self:_debugFlow(payload, failedPassAttackDirection and "pass intercepted at forward landing" or "pass intercepted carry-away settled")
 	end
 
 	-- // [ STEP RESOLVE ENTRY ] // --
@@ -2428,7 +2409,6 @@ return function(MatchPresentationController, Context)
 		end
 
 		self.IsPostActionBusy = true
-		self:_debugFlow(payload, "post-action begin")
 
 		local readyFired = false
 		local function finishPostAction(reason)
@@ -2442,7 +2422,6 @@ return function(MatchPresentationController, Context)
 				tonumber(payload.StepIndex) or 0
 			)
 
-			self:_debugFlow(payload, reason or "post-action ready fired")
 			self:_notifyPresentationReady(payload.StepIndex, "PostAction")
 			self.IsPostActionBusy = false
 		end

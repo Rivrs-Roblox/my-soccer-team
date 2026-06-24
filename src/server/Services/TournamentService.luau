@@ -173,22 +173,31 @@ function TournamentService:CancelPendingStart(player: Player, options: any?)
 	return true
 end
 
-function TournamentService:ApplyMatchResult(player: Player, didWin: boolean)
+function TournamentService:ApplyMatchResult(player: Player, didWin: boolean, playerGoals: number?, opponentGoals: number?)
 	local state = sessionsByPlayer[player]
 	if not state then
 		return nil
 	end
 
 	if didWin then
-		state = TournamentRules.AdvanceAfterWin(state)
+		state = TournamentRules.AdvanceAfterWin(state, playerGoals, opponentGoals)
 	else
-		state = TournamentRules.ApplyPlayerLoss(state)
+		state = TournamentRules.ApplyPlayerLoss(state, playerGoals, opponentGoals)
 	end
 
 	state.UpdatedAt = os.time()
 	sessionsByPlayer[player] = state
 
 	local payload = TournamentQuery.BuildPreviewPayload(state)
+
+	-- Multi-leg: propagate LegResult so MatchService can handle continuation
+	if state.LegResult == "LegWin" then
+		payload.LegResult = "LegWin"
+		-- Don't fire TournamentUpdated for intermediate legs —
+		-- bracket stays unchanged until round is complete.
+		return payload
+	end
+
 	self.Client.TournamentUpdated:Fire(player, payload)
 
 	if state.Status == "Champion" then

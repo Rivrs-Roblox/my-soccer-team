@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 
 local Trove = require(ReplicatedStorage.Packages.Trove)
+local PlayerTeamIdentity = require(script.Parent.Parent.Parent.Helpers.PlayerTeamIdentity)
 local MatchIntroConfig = require(ReplicatedStorage.Shared.Data.Match.MatchIntroConfig)
 local TeamLogoConfig = require(ReplicatedStorage.Shared.Data.TeamLogoConfig)
 local FormatNumber = require(ReplicatedStorage.Shared.Helpers.Numbers.FormatNumber)
@@ -35,9 +36,6 @@ local LEGACY_MATCH_START_NAME = "MatchStart"
 local MATCH_START_POPUP_NAME = "Popup"
 
 local DISPLAY_ORDER = 275
-local DEBUG_UI_LIFECYCLE = false
-local DEBUG_INTRO_VERBOSE = MatchIntroConfig.DebugMatchIntro == true
-local DEBUG_SPAWN_HANDOFF = MatchIntroConfig.DebugMatchIntro == true
 
 local BASE_Z_INDEX = 900
 local DIM_Z_INDEX = BASE_Z_INDEX
@@ -63,12 +61,6 @@ local function getTiming(name, fallback)
 	return value
 end
 
-local function debugLog(message)
-	if DEBUG_UI_LIFECYCLE then
-		print("[MatchIntroView] " .. tostring(message))
-	end
-end
-
 local function safeText(value, fallback)
 	if value == nil then
 		return fallback
@@ -77,6 +69,15 @@ local function safeText(value, fallback)
 	local text = tostring(value)
 	if text == "" then
 		return fallback
+	end
+
+	return text
+end
+
+local function resolvePlayerTeamName(value)
+	local text = safeText(value, "")
+	if text == "" or text == "FC Rivrs" or text == "Rivrs FC" then
+		return PlayerTeamIdentity.GetName("Player")
 	end
 
 	return text
@@ -250,8 +251,9 @@ local function resolveRewardText(introData)
 end
 
 local function resolveTeamLogo(introData, teamName, providedLogo)
-	if introData and teamName == safeText(introData.HomeTeamName, "FC Rivrs") then
-		return "rbxassetid://81212587492189"
+	local rawHomeTeamName = introData and safeText(introData.HomeTeamName, "FC Rivrs") or ""
+	if introData and (teamName == rawHomeTeamName or teamName == resolvePlayerTeamName(rawHomeTeamName)) then
+		return PlayerTeamIdentity.GetThumbnail()
 	end
 
 	local logo = normalizeAssetId(providedLogo)
@@ -397,12 +399,6 @@ function MatchIntroView.new()
 	return self
 end
 
-function MatchIntroView:_debug(message)
-	if MatchIntroConfig.DebugMatchIntro == true then
-		print("[MatchIntro] " .. tostring(message))
-	end
-end
-
 function MatchIntroView:_getPlayerGui()
 	local player = Players.LocalPlayer
 	if not player then
@@ -518,7 +514,6 @@ function MatchIntroView:_destroyRuntimeOverlay(reason)
 	end
 
 	if root and root.Parent then
-		debugLog("destroy runtime MatchIntroOverlayGui: " .. tostring(reason))
 		root:Destroy()
 	end
 end
@@ -563,7 +558,6 @@ function MatchIntroView:_createFreshOverlayGui()
 	freshRoot.DisplayOrder = math.max(freshRoot.DisplayOrder, DISPLAY_ORDER)
 	freshRoot.ZIndexBehavior = Enum.ZIndexBehavior.Global
 	self._overlayGui = freshRoot
-	debugLog("fresh MatchIntroOverlayGui cloned from StarterGui template")
 
 	return freshRoot
 end
@@ -641,9 +635,6 @@ function MatchIntroView:_setFadeTargets(targets, mode)
 		local instance = target.Instance
 		if instance and instance.Parent then
 			local value = mode == "hidden" and 1 or target.TargetValue
-			if DEBUG_INTRO_VERBOSE and (instance.Name == "PlayerScoreText" or instance.Name == "EnemyScoreText") then
-				print(string.format("[DEBUG-INTRO] _setFadeTargets %s on %s to %s (TargetValue was %s)", mode, instance.Name, tostring(value), tostring(target.TargetValue)))
-			end
 			pcall(function()
 				instance[target.PropertyName] = value
 			end)
@@ -656,9 +647,6 @@ function MatchIntroView:_tweenFadeTargets(targets, duration, mode)
 		local instance = target.Instance
 		if instance and instance.Parent then
 			local value = mode == "hidden" and 1 or target.TargetValue
-			if DEBUG_INTRO_VERBOSE and (instance.Name == "PlayerScoreText" or instance.Name == "EnemyScoreText") then
-				print(string.format("[DEBUG-INTRO] _tweenFadeTargets %s on %s to %s (TargetValue was %s)", mode, instance.Name, tostring(value), tostring(target.TargetValue)))
-			end
 			self:_createTween(instance, duration, {
 				[target.PropertyName] = value,
 			}):Play()
@@ -739,11 +727,12 @@ end
 
 function MatchIntroView:_bindArtistMatchStartData(refs, introData)
 	local roundName = safeText(introData.RoundName, "ROUND OF 16")
-	local homeTeam = safeText(introData.HomeTeamName, "FC Rivrs")
+	local titleText = safeText(introData.MatchTitle or introData.TitleText, "MATCH START")
+	local homeTeam = resolvePlayerTeamName(introData.HomeTeamName)
 	local awayTeam = safeText(introData.AwayTeamName, "FC Roblox")
 	local homeScore, awayScore = resolveDrawScore(introData)
 
-	setText(refs.TitleText, "MATCH START")
+	setText(refs.TitleText, titleText)
 	setText(refs.RoundOf, formatRoundOf(roundName))
 	setText(refs.Time, formatMinuteShort(introData.MatchMinute))
 	setText(refs.PlayerNameText, homeTeam)
@@ -754,18 +743,10 @@ function MatchIntroView:_bindArtistMatchStartData(refs, introData)
 	if refs.PlayerScoreText then
 		refs.PlayerScoreText.Visible = true
 		refs.PlayerScoreText.TextTransparency = 0
-		if DEBUG_INTRO_VERBOSE then
-			print(string.format("[DEBUG-INTRO] PlayerScore Bound: Text=%s, Visible=%s, Transp=%s, Class=%s, Name=%s", tostring(refs.PlayerScoreText.Text), tostring(refs.PlayerScoreText.Visible), tostring(refs.PlayerScoreText.TextTransparency), refs.PlayerScoreText.ClassName, refs.PlayerScoreText.Name))
-		end
-	elseif DEBUG_INTRO_VERBOSE then
-		print("[DEBUG-INTRO] PlayerScoreText REF IS NIL!")
 	end
 	if refs.EnemyScoreText then
 		refs.EnemyScoreText.Visible = true
 		refs.EnemyScoreText.TextTransparency = 0
-		if DEBUG_INTRO_VERBOSE then
-			print(string.format("[DEBUG-INTRO] EnemyScore Bound: Text=%s, Visible=%s, Transp=%s", tostring(refs.EnemyScoreText.Text), tostring(refs.EnemyScoreText.Visible), tostring(refs.EnemyScoreText.TextTransparency)))
-		end
 	end
 	
 	setText(refs.VsText, "VS")
@@ -865,12 +846,9 @@ function MatchIntroView:_bindOverlayData(refs, introData)
 	local roundName = safeText(introData.RoundName, "Final Attack")
 	local minuteText = formatMinute(introData.MatchMinute)
 
-	local homeTeam = safeText(introData.HomeTeamName, "FC Rivrs")
+	local homeTeam = resolvePlayerTeamName(introData.HomeTeamName)
 	local awayTeam = safeText(introData.AwayTeamName, "FC Roblox")
 	local homeScore, awayScore = resolveDrawScore(introData)
-	if DEBUG_INTRO_VERBOSE then
-		print(string.format("[MatchIntro] CurrentScore=%s-%s RewardWins=%s", tostring(homeScore), tostring(awayScore), tostring(introData.RewardWins or introData.RewardText or 0)))
-	end
 
 	setText(refs.LeagueLabel, string.upper(leagueName))
 	setText(refs.RoundLabel, roundName)
@@ -954,20 +932,9 @@ function MatchIntroView:_playVsIntro(playId, refs)
 	local hold = getTiming("VsHold", 3.0)
 	local fadeOut = getTiming("VsFadeOut", 0.25)
 
-	self:_debug("artist vs popup shown")
-	if DEBUG_INTRO_VERBOSE then
-		print("[DEBUG-INTRO] Playing Vs Intro!")
-	end
-	if DEBUG_INTRO_VERBOSE and refs.PlayerScoreText then
-		print(string.format("[DEBUG-INTRO] BEFORE TWEEN - PlayerScoreText: Transp=%s", tostring(refs.PlayerScoreText.TextTransparency)))
-	end
-
 	local shownDimTransparency = math.max(getTiming("VsDimTransparency", 0.9), 0.86)
 	if self._usesArtistMatchStart then
 		shownDimTransparency = math.min(shownDimTransparency, 0.78)
-	end
-	if DEBUG_INTRO_VERBOSE then
-		print(string.format("[DEBUG-INTRO] DimFrame Transp Tweens To: %s", tostring(shownDimTransparency)))
 	end
 	local popDuration = math.min(fadeIn * 0.72, 0.18)
 	local settleDuration = math.max(fadeIn - popDuration, 0.08)
@@ -983,8 +950,6 @@ function MatchIntroView:_playVsIntro(playId, refs)
 	if not self:_waitActive(playId, fadeIn + hold) then
 		return false
 	end
-
-	self:_debug("artist vs popup hidden")
 
 	self:_createTween(refs.PanelScale, fadeOut, { Scale = 0.78 }, Enum.EasingStyle.Back, Enum.EasingDirection.In):Play()
 	self:_tweenFadeTargets(refs.FadeTargets, fadeOut, "hidden")
@@ -1019,8 +984,6 @@ function MatchIntroView:_playCountdown(playId, refs)
 		if not self:_isActive(playId) then
 			return false
 		end
-
-		self:_debug("countdown " .. tostring(value))
 
 		countdownLabel.Text = tostring(value)
 		countdownLabel.TextColor3 = COLORS.White
@@ -1088,21 +1051,11 @@ function MatchIntroView:PlayIntro(introData, token, onCountdownComplete)
 	local playId = self._activePlayId + 1
 	self._activePlayId = playId
 
-	debugLog("PlayIntro requested")
 	local refs = self:_buildOverlay(introData)
 	if not refs then
 		warn("[MatchIntro] artist overlay could not be resolved; releasing presentation.")
 		return true
 	end
-
-	self:_debug(string.format(
-		"data home=%s away=%s score=%s-%s minute=%s",
-		tostring(introData.HomeTeamName),
-		tostring(introData.AwayTeamName),
-		tostring(introData.HomeScore),
-		tostring(introData.AwayScore),
-		tostring(introData.MatchMinute)
-	))
 
 	local ok = self:_playVsIntro(playId, refs)
 	if ok then
@@ -1115,18 +1068,7 @@ function MatchIntroView:PlayIntro(introData, token, onCountdownComplete)
 
 	if ok and self:_isActive(playId) then
 		if type(onCountdownComplete) == "function" then
-			if DEBUG_SPAWN_HANDOFF then
-				print(string.format("[SpawnHandoff][MatchIntroView] t=%.3f label=release-before-callback", os.clock()))
-			end
 			local releaseOk, releaseResult = pcall(onCountdownComplete)
-			if DEBUG_SPAWN_HANDOFF then
-				print(string.format(
-					"[SpawnHandoff][MatchIntroView] t=%.3f label=release-after-callback ok=%s result=%s",
-					os.clock(),
-					tostring(releaseOk),
-					tostring(releaseResult)
-				))
-			end
 			if not releaseOk then
 				warn("[MatchIntro] release callback failed: " .. tostring(releaseResult))
 				ok = false
@@ -1138,13 +1080,6 @@ function MatchIntroView:PlayIntro(introData, token, onCountdownComplete)
 
 	if ok and self:_isActive(playId) then
 		local postReleaseHold = math.max(getTiming("PostReleaseVeilHold", 0.18), 0)
-		if DEBUG_SPAWN_HANDOFF then
-			print(string.format(
-				"[SpawnHandoff][MatchIntroView] t=%.3f label=post-release-hold duration=%.2f",
-				os.clock(),
-				postReleaseHold
-			))
-		end
 		if postReleaseHold > 0 then
 			ok = self:_waitActive(playId, postReleaseHold)
 		end
@@ -1152,14 +1087,8 @@ function MatchIntroView:PlayIntro(introData, token, onCountdownComplete)
 
 	if ok and self:_isActive(playId) then
 		local finalFade = getTiming("FinalFadeOut", 0.2)
-		if DEBUG_SPAWN_HANDOFF then
-			print(string.format("[SpawnHandoff][MatchIntroView] t=%.3f label=final-fade-start duration=%.2f", os.clock(), finalFade))
-		end
 		self:_createTween(refs.DimFrame, finalFade, { BackgroundTransparency = 1 }):Play()
 		self:_waitActive(playId, finalFade)
-		if DEBUG_SPAWN_HANDOFF then
-			print(string.format("[SpawnHandoff][MatchIntroView] t=%.3f label=final-fade-end", os.clock()))
-		end
 	end
 
 	local completed = ok and self:_isActive(playId)
@@ -1168,7 +1097,6 @@ function MatchIntroView:PlayIntro(introData, token, onCountdownComplete)
 end
 
 function MatchIntroView:Cancel(_reason)
-	debugLog("Cancel " .. tostring(_reason))
 	self._activePlayId += 1
 	self:_cancelTweens()
 	self:_disableMatchStartBackgroundBlur()

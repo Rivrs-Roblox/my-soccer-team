@@ -9,6 +9,7 @@ local RunService = game:GetService("RunService")
 local StarterPlayer = game:GetService("StarterPlayer")
 local TweenService = game:GetService("TweenService")
 
+local PlayerTeamIdentity = require(script.Parent.Parent.Parent.Helpers.PlayerTeamIdentity)
 local TeamLogoConfig = require(ReplicatedStorage.Shared.Data.TeamLogoConfig)
 
 local TournamentBracketView = {}
@@ -21,7 +22,6 @@ local CLOSE_HITBOX_NAME = "__TournamentCloseHitbox"
 local CHAMPION_PLACEHOLDER_NAME = "__ChampionPlaceholder"
 local DEFAULT_REWARD_WINS = 15
 local TOURNAMENT_DISPLAY_ORDER = 260
-local DEBUG_UI_LIFECYCLE = false
 local SIMPLIFIED_MATCH_BRACKET_UI = true
 
 -- Bracket progression animation timing
@@ -139,12 +139,6 @@ end
 
 local function IsTable(value): boolean
 	return type(value) == "table"
-end
-
-local function DebugLog(message: string)
-	if DEBUG_UI_LIFECYCLE then
-		print("[TournamentBracketView] " .. message)
-	end
 end
 
 local function DisconnectAll(connections: { RBXScriptConnection })
@@ -331,6 +325,10 @@ local function StableDrawScoreFromParts(parts: { string }): number
 end
 
 local function GetTeamName(team, fallback: string): string
+	if IsTable(team) and (team.IsPlayer == true or tostring(team.TeamId or "") == "Player") then
+		return PlayerTeamIdentity.GetName(fallback)
+	end
+
 	if not IsTable(team) then
 		return fallback
 	end
@@ -394,7 +392,7 @@ end
 
 local function ResolveTournamentTeamLogo(team, payload, currentMatch, playerLogoCache: string?): string
 	if IsPlayerTeam(team) then
-		return "rbxassetid://81212587492189"
+		return PlayerTeamIdentity.GetThumbnail(playerLogoCache)
 	end
 
 	local directLogo = GetTeamIcon(team)
@@ -574,7 +572,7 @@ local function ResolvePreviewDrawScore(payload, match): number
 	return StableDrawScoreFromParts({
 		GetPreviewLeagueText(payload),
 		GetPreviewRoundText(payload, match),
-		GetTeamName(homeTeam, "FC Rivrs"),
+		GetTeamName(homeTeam, PlayerTeamIdentity.GetName("Player")),
 		GetTeamName(awayTeam, "Opponent FC"),
 	})
 end
@@ -1391,7 +1389,6 @@ function TournamentBracketView:_restoreArtistLayoutVisibility()
 	local zCount = NormalizeTournamentLayering(root)
 	self:_applySimplifiedLayoutVisibility()
 
-	DebugLog(string.format("structural visibility restored objects=%d normalizedZ=%d", restoredCount, zCount))
 end
 
 function TournamentBracketView:_applySimplifiedLayoutVisibility()
@@ -1445,7 +1442,6 @@ function TournamentBracketView:_forceHidden(reason: string)
 	local root = self:_getRoot()
 	SetVisible(root, false)
 	self._isVisible = false
-	DebugLog("forced hidden: " .. reason)
 end
 
 function TournamentBracketView:_ensureHiddenGuard()
@@ -1458,7 +1454,6 @@ function TournamentBracketView:_ensureHiddenGuard()
 		local rootObject = AsGuiObject(root)
 		if rootObject and rootObject.Visible and self._isVisible ~= true then
 			rootObject.Visible = false
-			DebugLog("hidden guard corrected stray visible root")
 		end
 	end)
 end
@@ -1873,11 +1868,11 @@ function TournamentBracketView:_renderTeamRow(teamRoot: Instance?, match, team, 
 		SetStrokeSpin(activeFrame, self._activeOutlineRotation)
 	end
 
-	-- Resolve logo: server icon takes priority, then TeamLogoConfig by name, then player random cache.
+	-- Resolve logo: player thumbnail for player team; server/config logos for opponents.
 	local resolvedIcon = ""
 	if hasTeam then
 		if isPlayer then
-			resolvedIcon = "rbxassetid://81212587492189"
+			resolvedIcon = PlayerTeamIdentity.GetThumbnail(self._playerLogoCache)
 		else
 			resolvedIcon = GetTeamIcon(team)
 			if resolvedIcon == "" then
@@ -1940,7 +1935,7 @@ function TournamentBracketView:_renderRightFrame(payload)
 
 	if matchFrame then
 		-- Keep data binding for compatibility, but simplified mode hides this card.
-		SetText(FindPath(matchFrame, { "Versus", "Player", "NameText" }), GetTeamName(playerTeam, "Rivrs FC"))
+		SetText(FindPath(matchFrame, { "Versus", "Player", "NameText" }), GetTeamName(playerTeam, PlayerTeamIdentity.GetName("Player")))
 		SetImageIfProvided(
 			FindPath(matchFrame, { "Versus", "Player", "Logo" }),
 			ResolveTournamentTeamLogo(playerTeam, payload, currentMatch, self._playerLogoCache)
@@ -2207,7 +2202,6 @@ function TournamentBracketView:Render(payload)
 		return
 	end
 
-	DebugLog("Render payload")
 	self._isChampion = tostring(payload.Status or "") == "Champion"
 
 	if not SIMPLIFIED_MATCH_BRACKET_UI then
@@ -2230,13 +2224,12 @@ function TournamentBracketView:Show(payload, onStart, onClose)
 	self._onClose = onClose
 	self._isStartLocked = false
 
-	-- Pick a stable random player logo for this Show() session.
+	-- Cache the local player's thumbnail for this Show() session.
 	do
-		self._playerLogoCache = "rbxassetid://81212587492189"
+		self._playerLogoCache = PlayerTeamIdentity.GetThumbnail()
 	end
 
 	self:_ensureHiddenGuard()
-	DebugLog("Show requested")
 	self:_suppressOtherGui()
 	self:_restoreArtistLayoutVisibility()
 	self:_setRootVisible(true)

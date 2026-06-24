@@ -16,10 +16,12 @@ local RoduxHooks = require(ReplicatedStorage.Packages.roduxhooks)
 
 -- Helpers
 local FormatNumber = require(ReplicatedStorage.Shared.Helpers.Numbers.FormatNumber)
+local GetStats = require(ReplicatedStorage.Shared.Helpers.SoccerCharacters.GetStats)
 
 -- Controllers
 local TradeController = Knit.GetController("TradeController")
 local DataCacheController = Knit.GetController("DataCacheController")
+local UIController = Knit.GetController("UIController")
 
 -- Components
 local Components = StarterPlayer.StarterPlayerScripts.Client.Roact.Components
@@ -199,26 +201,18 @@ function Trading(_, hooks)
 
 	local SearchText, SetSearchText = hooks.useState("")
 
-	local index = 0
-	local MySoccerCharacters = {}
+	-- Collect and sort My Soccer Characters
+	local mySideList = {}
+	local addedIds = {}
 
 	for id, charData in pairs(TradeReducer.MySoccerCharacters) do
 		if SearchText == "" or string.find(string.lower(charData.Name), SearchText, 1, true) then
-			local templateData = getSoccerCharacterTemplate(charData.Name)
-
-			MySoccerCharacters[id] = SoccerCharacter({
-				trading = true,
-				icon = getSoccerCharacterIcon(charData.Name),
-				name = charData.Name,
+			addedIds[id] = true
+			table.insert(mySideList, {
 				id = id,
-				power = `{charData.Level} ⭐`,
-				bg_color = getSoccerCharacterColor(templateData.Rarity),
-				rarity = templateData.Rarity,
-				my_side = true,
-				order = index,
+				charData = charData,
+				trading = true,
 			})
-
-			index += 1
 		end
 	end
 
@@ -227,45 +221,122 @@ function Trading(_, hooks)
 			continue
 		end
 
-		if MySoccerCharacters[id] == nil then
+		if not addedIds[id] then
 			if SearchText == "" or string.find(string.lower(charData.Name), SearchText, 1, true) then
-				local templateData = getSoccerCharacterTemplate(charData.Name)
-
-				MySoccerCharacters[id] = SoccerCharacter({
-					trading = false,
-					icon = getSoccerCharacterIcon(charData.Name),
-					name = charData.Name,
+				addedIds[id] = true
+				table.insert(mySideList, {
 					id = id,
-					power = `{charData.Level} ⭐`,
-					bg_color = getSoccerCharacterColor(templateData.Rarity),
-					rarity = templateData.Rarity,
-					my_side = true,
-					order = index,
+					charData = charData,
+					trading = false,
 				})
-
-				index += 1
 			end
 		end
 	end
 
-	local HisSoccerCharacters = {}
-	index = 0
-	for id, charData in pairs(TradeReducer.HisSoccerCharacters) do
-		local templateData = getSoccerCharacterTemplate(charData.Name)
+	table.sort(mySideList, function(a, b)
+		local templateDataA = getSoccerCharacterTemplate(a.charData.Name)
+		local templateDataB = getSoccerCharacterTemplate(b.charData.Name)
 
-		HisSoccerCharacters[id] = SoccerCharacter({
-			trading = true,
-			icon = getSoccerCharacterIcon(charData.Name),
-			name = charData.Name,
+		local rarityA = Template.RarityPriority[templateDataA.Rarity or "Common"] or 100
+		local rarityB = Template.RarityPriority[templateDataB.Rarity or "Common"] or 100
+
+		if rarityA ~= rarityB then
+			return rarityA < rarityB
+		end
+
+		local statsA = GetStats(a.charData, InventoryReducer.Accessories)
+		local statsB = GetStats(b.charData, InventoryReducer.Accessories)
+
+		local valA = statsA.Shoot + statsA.Dribble + statsA.Pass
+		local valB = statsB.Shoot + statsB.Dribble + statsB.Pass
+
+		if valA ~= valB then
+			return valA > valB
+		end
+
+		if (a.charData.Level or 1) ~= (b.charData.Level or 1) then
+			return (a.charData.Level or 1) > (b.charData.Level or 1)
+		end
+
+		if a.charData.Name ~= b.charData.Name then
+			return a.charData.Name < b.charData.Name
+		end
+
+		return tostring(a.id) < tostring(b.id)
+	end)
+
+	local MySoccerCharacters = {}
+	for index, item in ipairs(mySideList) do
+		local templateData = getSoccerCharacterTemplate(item.charData.Name)
+		MySoccerCharacters[item.id] = SoccerCharacter({
+			trading = item.trading,
+			icon = getSoccerCharacterIcon(item.charData.Name),
+			name = item.charData.Name,
+			id = item.id,
+			power = `{item.charData.Level} ⭐`,
+			bg_color = getSoccerCharacterColor(templateData.Rarity),
+			rarity = templateData.Rarity,
+			my_side = true,
+			order = index,
+		})
+	end
+
+	-- Collect and sort His Soccer Characters
+	local hisSideList = {}
+	for id, charData in pairs(TradeReducer.HisSoccerCharacters) do
+		table.insert(hisSideList, {
 			id = id,
-			power = `{charData.Level} ⭐`,
+			charData = charData,
+		})
+	end
+
+	table.sort(hisSideList, function(a, b)
+		local templateDataA = getSoccerCharacterTemplate(a.charData.Name)
+		local templateDataB = getSoccerCharacterTemplate(b.charData.Name)
+
+		local rarityA = Template.RarityPriority[templateDataA.Rarity or "Common"] or 100
+		local rarityB = Template.RarityPriority[templateDataB.Rarity or "Common"] or 100
+
+		if rarityA ~= rarityB then
+			return rarityA < rarityB
+		end
+
+		-- No accessories context for his players
+		local statsA = GetStats(a.charData)
+		local statsB = GetStats(b.charData)
+
+		local valA = statsA.Shoot + statsA.Dribble + statsA.Pass
+		local valB = statsB.Shoot + statsB.Dribble + statsB.Pass
+
+		if valA ~= valB then
+			return valA > valB
+		end
+
+		if (a.charData.Level or 1) ~= (b.charData.Level or 1) then
+			return (a.charData.Level or 1) > (b.charData.Level or 1)
+		end
+
+		if a.charData.Name ~= b.charData.Name then
+			return a.charData.Name < b.charData.Name
+		end
+
+		return tostring(a.id) < tostring(b.id)
+	end)
+
+	local HisSoccerCharacters = {}
+	for index, item in ipairs(hisSideList) do
+		local templateData = getSoccerCharacterTemplate(item.charData.Name)
+		HisSoccerCharacters[item.id] = SoccerCharacter({
+			trading = true,
+			icon = getSoccerCharacterIcon(item.charData.Name),
+			name = item.charData.Name,
+			id = item.id,
+			power = `{item.charData.Level} ⭐`,
 			bg_color = getSoccerCharacterColor(templateData.Rarity),
 			rarity = templateData.Rarity,
 			my_side = false,
 			order = index,
 		})
-
-		index += 1
 	end
 
 	local otherPlayerName = "Other"
@@ -293,13 +364,15 @@ function Trading(_, hooks)
 		acceptGradientB = Color3.fromHex("822b2d")
 	end
 
+	local isUiBlocked = UIController:IsUiBlockedForMatch()
+
 	return Roact.createElement("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		ZIndex = 2,
-		Visible = TradeReducer.Trading == true,
+		Visible = not isUiBlocked and TradeReducer.Trading == true,
 	}, {
 		Content = Blue_Background({
 			title = "Trading",

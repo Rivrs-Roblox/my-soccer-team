@@ -528,45 +528,22 @@ function DataService:TutorialFinished(player: Player, state: boolean)
 end
 
 function DataService:GiveBadge(player: Player, badgeId: number)
+	if not badgeId or typeof(badgeId) ~= "number" then
+		return
+	end
+
 	local data = self:GetData(player)
 	if data == nil then
 		return
 	end
 
-	-- Check if badge exists and is enabled
-	local success, result = pcall(function()
-		return BadgeService:GetBadgeInfoAsync(badgeId) -- Change this to desired badge ID
-	end)
-
-	if not success or not result.IsEnabled then
-		print(`Get badge info error for {player.Name}`)
-		return
-	end
-
-	-- Check if player already has badge
-	local successCheck, resultCheck = pcall(function()
-		return BadgeService:UserHasBadgeAsync(player.UserId, badgeId)
-	end)
-
-	if not successCheck then
-		print(`Check has badge error for {player.Name}`)
-		return
-	end
-
-	if resultCheck then
-		print(`Player {player.Name} already has badge {result.Name}`)
-		return
-	end
-
-	-- Award badge
+	-- Award badge directly (AwardBadge handles checking if the user already has the badge internally)
 	local successAward, resultAward = pcall(function()
 		return BadgeService:AwardBadge(player.UserId, badgeId)
 	end)
 
-	if successAward then
-		print(`Awarded badge {result.Name} to {player.Name}`)
-	else
-		print(`Failed to award badge {result.Name} to {player.Name}: {resultAward}`)
+	if not successAward then
+		warn(`Failed to award badge {badgeId} to {player.Name}: {resultAward}`)
 	end
 end
 

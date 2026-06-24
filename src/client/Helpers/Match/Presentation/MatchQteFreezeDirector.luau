@@ -18,6 +18,9 @@ return function(MatchPresentationController, Context)
 	local QTE_FORCE_BOUNDARY_SETTLE_LATERAL_OFFSET = Constants.QTE_FORCE_BOUNDARY_SETTLE_LATERAL_OFFSET
 	local PRESSURE_SWITCH_DISTANCE = Constants.PRESSURE_SWITCH_DISTANCE
 	local PRESSURE_SWITCH_DISTANCE_STEP_1 = Constants.PRESSURE_SWITCH_DISTANCE_STEP_1
+	local DEFAULT_TIME_SCALE = Constants.DEFAULT_TIME_SCALE or 1.0
+	local QTE_SLOWMO_TIME_SCALE = Constants.QTE_SLOWMO_TIME_SCALE or 0.1
+	local QTE_SLOWMO_ANIMATION_SPEED = Constants.QTE_SLOWMO_ANIMATION_SPEED or QTE_SLOWMO_TIME_SCALE
 
 	local GetRootPart = Utils.GetRootPart
 	local GetGroundedPosition = Utils.GetGroundedPosition
@@ -42,11 +45,13 @@ return function(MatchPresentationController, Context)
 		},
 
 		Pass = {
-			Animations = { "Shoot", "Shoot - Training", "Shoot - Penalty", "Shoot - Special", "Pass" },
-			PoseTime = 0.20,
-			FadeTime = 0.02,
+			-- Pass resolve owns the real kick. Pre-QTE should not show a slowmo kick first.
+			SkipActionPose = true,
+			Animations = { "Idle" },
+			PoseTime = 0,
+			FadeTime = 0.05,
 			BallOffset = MatchBallConfig.PassOffset,
-			EnemyAnimation = "Run",
+			EnemyAnimation = "Idle",
 			EnemySpeed = 1.0,
 		},
 
@@ -70,6 +75,14 @@ return function(MatchPresentationController, Context)
 	}
 
 	local SHOOT_ANIMATION_NAMES = {
+		["Shoot"] = true,
+		["Shoot - Training"] = true,
+		["Shoot - Penalty"] = true,
+		["Shoot - Special"] = true,
+	}
+
+	local ACTION_POSE_ANIMATION_NAMES = {
+		["Pass"] = true,
 		["Shoot"] = true,
 		["Shoot - Training"] = true,
 		["Shoot - Penalty"] = true,
@@ -132,6 +145,26 @@ return function(MatchPresentationController, Context)
 			local animationName = animation and animation.Name or ""
 
 			if SHOOT_ANIMATION_NAMES[animationName] then
+				track:Stop(0.03)
+			end
+		end
+	end
+
+	local function stopActionPoseTracks(model)
+		if not model then
+			return
+		end
+
+		local animator = model:FindFirstChildWhichIsA("Animator", true)
+		if not animator then
+			return
+		end
+
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			local animation = track.Animation
+			local animationName = animation and animation.Name or ""
+
+			if ACTION_POSE_ANIMATION_NAMES[animationName] then
 				track:Stop(0.03)
 			end
 		end
@@ -377,8 +410,6 @@ return function(MatchPresentationController, Context)
 	end
 
 	function MatchPresentationController:_shouldKeepModelLiveDuringQte(model)
-		-- QTE must be a hard freeze. Legacy live-runner exceptions caused QTE3 actors
-		-- to keep sliding while the decision UI was active.
 		return false
 	end
 
@@ -440,14 +471,14 @@ return function(MatchPresentationController, Context)
 			do
 				for model in pairs(self.FrozenRigModels) do
 					if model and model.Parent then
-						self:_pauseRigAnimation(model)
+						self:_pauseRigAnimation(model, QTE_SLOWMO_ANIMATION_SPEED)
 					end
 				end
 
 				self:_forEachEnemyModel(function(enemyModel)
 					if enemyModel and enemyModel.Parent and not self:_shouldKeepModelLiveDuringQte(enemyModel) then
 						self.FrozenRigModels[enemyModel] = true
-						self:_pauseRigAnimation(enemyModel)
+						self:_pauseRigAnimation(enemyModel, QTE_SLOWMO_ANIMATION_SPEED)
 					end
 				end)
 
@@ -469,12 +500,13 @@ return function(MatchPresentationController, Context)
 
 		if posePayload and poseActorModel and not shouldSkipActionPose(posePayload) then
 			self:_applyPreQteHoldPose(posePayload, poseActorModel, poseEnemyModel, true)
-		elseif posePayload and posePayload.Action == "Shoot" and poseActorModel then
-			stopShootTracks(poseActorModel)
+		elseif posePayload and poseActorModel and shouldSkipActionPose(posePayload) then
+			stopActionPoseTracks(poseActorModel)
 			self:_playMotionAnimation(poseActorModel, "Idle", 1.0)
 		end
 
 		self.IsPreQteFrozen = true
+		self:_setTimeScale(QTE_SLOWMO_TIME_SCALE)
 
 		table.clear(self.FrozenRigModels)
 
@@ -485,7 +517,7 @@ return function(MatchPresentationController, Context)
 
 			if model and model.Parent and not self.FrozenRigModels[model] then
 				self.FrozenRigModels[model] = true
-				self:_pauseRigAnimation(model)
+				self:_pauseRigAnimation(model, QTE_SLOWMO_ANIMATION_SPEED)
 			end
 		end
 
@@ -508,21 +540,16 @@ return function(MatchPresentationController, Context)
 		self:_hideAllEmbeddedMatchBalls()
 		self:_startQteFreezeAnimationGuard()
 
-		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.PauseLocalMatch then
-			self.MatchActorRuntimeController:PauseLocalMatch(LocalPlayer)
+		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchTimeScale then
+			self.MatchActorRuntimeController:SetLocalMatchTimeScale(LocalPlayer, QTE_SLOWMO_TIME_SCALE)
 		end
 
-		if self.MatchBallController and self.MatchBallController.StopFollow then
-			self.MatchBallController:StopFollow()
-		end
-
-		if self.MatchBattleCameraController and self.MatchBattleCameraController.PauseQteCamera then
+		if self.MatchBattleCameraController and self.MatchBattleCameraController.StartQteSoftFollow then
+			self.MatchBattleCameraController:StartQteSoftFollow()
+		elseif self.MatchBattleCameraController and self.MatchBattleCameraController.PauseQteCamera then
 			self.MatchBattleCameraController:PauseQteCamera()
 		end
 
-		if self.DebugFlow then
-			print("[MatchPresentationFlow] QTE freeze lock applied")
-		end
 	end
 
 	local function forceResumeModelTracks(model)
@@ -562,7 +589,11 @@ return function(MatchPresentationController, Context)
 			return
 		end
 
+		local pendingPayload = self.PendingPreQtePosePayload
+		local pendingActorModel = self.PendingPreQtePoseActorModel
+
 		self.IsPreQteFrozen = false
+		self:_setTimeScale(DEFAULT_TIME_SCALE)
 		self.QteLiveRunnerSlot = nil
 		self.QteLiveShadowEnemySlot = nil
 
@@ -577,11 +608,15 @@ return function(MatchPresentationController, Context)
 		self.QteFreezeToken = (self.QteFreezeToken or 0) + 1
 		self.LastPreQtePoseKey = nil
 
+		if pendingPayload and pendingActorModel and shouldSkipActionPose(pendingPayload) then
+			stopActionPoseTracks(pendingActorModel)
+		end
+
 		self:_resumeFrozenRigAnimations()
 		self:_resumeKnownMatchRigAnimations()
 
-		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.ResumeLocalMatch then
-			self.MatchActorRuntimeController:ResumeLocalMatch(LocalPlayer)
+		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchTimeScale then
+			self.MatchActorRuntimeController:SetLocalMatchTimeScale(LocalPlayer, DEFAULT_TIME_SCALE)
 		end
 
 		if self.MatchBattleCameraController and self.MatchBattleCameraController.ResumeQteCamera then
@@ -658,6 +693,7 @@ return function(MatchPresentationController, Context)
 		end
 
 		if actionConfig.SkipActionPose == true then
+			stopActionPoseTracks(actorModel)
 			self:_playMotionAnimation(actorModel, "Idle", 1.0)
 
 			if enemyModel then
@@ -724,7 +760,7 @@ return function(MatchPresentationController, Context)
 		local actionConfig = getActionPoseConfig(payload.Action)
 
 		if actionConfig.SkipActionPose == true then
-			stopShootTracks(actorModel)
+			stopActionPoseTracks(actorModel)
 			self:_playMotionAnimation(actorModel, "Idle", 1.0)
 
 			if enemyModel then
@@ -757,14 +793,14 @@ return function(MatchPresentationController, Context)
 
 		if actorTrack then
 			safeSetTrackTimePosition(actorTrack, actionConfig.PoseTime or 0.16)
-			actorTrack:AdjustSpeed(0)
+			actorTrack:AdjustSpeed(QTE_SLOWMO_ANIMATION_SPEED)
 
 			RunService.RenderStepped:Wait()
 
 			if self:_isSessionActive(payload.SessionId) then
 				safeSetTrackTimePosition(actorTrack, actionConfig.PoseTime or 0.16)
-				actorTrack:AdjustSpeed(0)
-				self:_pauseRigAnimation(actorModel)
+				actorTrack:AdjustSpeed(QTE_SLOWMO_ANIMATION_SPEED)
+				self:_pauseRigAnimation(actorModel, QTE_SLOWMO_ANIMATION_SPEED)
 			end
 		end
 

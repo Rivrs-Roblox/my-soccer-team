@@ -29,8 +29,18 @@ function Accessories(_, hooks)
 	local TeamReducer = RoduxHooks.useSelector(hooks, function(state)
 		return state.TeamReducer
 	end)
+	local currentUI = RoduxHooks.useSelector(hooks, function(state)
+		return state.UIReducer.CurrentUI
+	end)
 
 	local searchText, setSearchText = hooks.useState("")
+
+	hooks.useEffect(function()
+		if currentUI ~= FramesConstants.Inventory or InventoryReducer.Inventory ~= InventoryConstants.Accessories then
+			setSearchText("")
+			Store:dispatch(InventoryActions.setDeletingAccessories(false))
+		end
+	end, { currentUI or "", InventoryReducer.Inventory })
 
 	local equippedIds = {}
 	if TeamReducer and TeamReducer.EquippedSoccerCharacters then
@@ -82,8 +92,8 @@ function Accessories(_, hooks)
 					rarity = templateData.Rarity or "Common",
 					image = UI[templateData.Name] or "",
 					order = (isEquipped and 0 or 10000000)
+						+ rarityPriority * 100000
 						+ statOffset
-						+ rarityPriority
 						+ numCards,
 					equipped = isEquipped,
 					deleting = InventoryReducer.DeletedAccessories[tostring(id)] ~= nil,
@@ -108,13 +118,8 @@ function Accessories(_, hooks)
 			end
 		end
 	end
-
-	local columns = 5
-	local rows = math.max(1, math.ceil(numCards / columns))
-	local desiredCellHeight = 0.43
-	local desiredCellPaddingY = 0
-	local canvasScaleY =
-		math.max(1, (rows * desiredCellHeight) + ((rows - 1) * desiredCellPaddingY) + 0.04)
+	local rows = math.max(1, math.ceil(numCards / 4))
+	local canvasY = math.max(1, rows * 0.45 + 0.05)
 
 	return Roact.createElement("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -123,8 +128,10 @@ function Accessories(_, hooks)
 		Visible = InventoryReducer.Inventory == InventoryConstants.Accessories,
 		Size = UDim2.fromScale(1, 1),
 	}, {
-		Scroll = Roact.createElement("ScrollingFrame", {
-			CanvasSize = UDim2.fromScale(0, math.max(1, canvasScaleY)),
+		["Scroll_" .. tostring(InventoryReducer.Inventory)] = Roact.createElement("ScrollingFrame", {
+			AutomaticCanvasSize = Enum.AutomaticSize.None,
+			CanvasSize = UDim2.fromScale(0, canvasY),
+			CanvasPosition = Vector2.new(0, 0),
 			ScrollBarThickness = 8,
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			BackgroundTransparency = 1,
@@ -135,14 +142,16 @@ function Accessories(_, hooks)
 			Size = UDim2.fromScale(0.95, 0.568),
 		}, {
 			UIPadding = Roact.createElement("UIPadding", {
-				PaddingTop = UDim.new(0, 0),
+				PaddingTop = UDim.new(0.015 / canvasY, 0),
+				PaddingLeft = UDim.new(0.035, 0),
+				PaddingRight = UDim.new(0.035, 0),
 			}),
 
 			Grid = Roact.createElement("UIGridLayout", {
 				SortOrder = 2,
-				CellSize = UDim2.fromScale(0.18, desiredCellHeight / canvasScaleY),
-				FillDirectionMaxCells = columns,
-				CellPadding = UDim2.fromScale(0.01, desiredCellPaddingY / canvasScaleY),
+				CellSize = UDim2.fromScale(0.21, 0.4 / canvasY),
+				FillDirectionMaxCells = 4,
+				CellPadding = UDim2.fromScale(0.03, 0.05 / canvasY),
 				HorizontalAlignment = 0,
 			}),
 			Roact.createFragment(AccessoryCards),

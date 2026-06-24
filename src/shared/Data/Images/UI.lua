@@ -19,7 +19,7 @@ return table.freeze({
 	Blue_Button = "rbxassetid://16259941034",
 
 	Arrow_Up = "rbxassetid://13548126854",
-	Spin_Wheel = "rbxassetid://13548110969",
+	Spin_Wheel = "rbxassetid://90107853628352",
 	Gift = "rbxassetid://136269638585155",
 	Free_Pet = "rbxassetid://109499507921823",
 	Rejoin_Pet = "rbxassetid://71216667102928",
@@ -43,9 +43,9 @@ return table.freeze({
 
 	Arrow = "rbxassetid://112270660846602",
 
-	TimedRewards = "rbxassetid://132979982624604",
+	TimedRewards = "rbxassetid://95019636206786",
 	Spins = "rbxassetid://90107853628352",
-	DailyRewards = "rbxassetid://86602903915319",
+	DailyRewards = "rbxassetid://101273639289995",
 	Invite = "rbxassetid://105569420287427",
 	Trade = "rbxassetid://101943401610405",
 	Settings = "rbxassetid://106226490184364",
@@ -73,6 +73,8 @@ return table.freeze({
 	x2_Pass_Boost = "rbxassetid://108611069084839",
 	x2_Shoot_Boost = "rbxassetid://117867575604888",
 	x2_Dribble_Boost = "rbxassetid://112148676456449",
+	x2_Stamina_Boost = "rbxassetid://83435824697729",
+	x2_Endurance_Boost = "rbxassetid://74184507866830",
 	Bundle_Boost = "rbxassetid://80189917784663",
 
 	VIP = "rbxassetid://82998541629687",
@@ -163,54 +165,55 @@ return table.freeze({
 	Card_Gold_Legendary_Mask = "rbxassetid://75173206084403",
 
 	-- Packs
-	Street_Kick_Pack_Bottom = "rbxassetid://126855775823601",
-	Street_Kick_Pack_Full = "rbxassetid://121873216601073",
-	Street_Kick_Pack_Top = "rbxassetid://131890360729222",
+	Street_Kick_Pack_Bottom = "rbxassetid://82227189395691",
+	Street_Kick_Pack_Full = "rbxassetid://79400738197513",
+	Street_Kick_Pack_Top = "rbxassetid://97619310752747",
 
-	Local_League_Pack_Bottom = "rbxassetid://108876278915909",
-	Local_League_Pack_Full = "rbxassetid://127164469787498",
-	Local_League_Pack_Top = "rbxassetid://129173766289387",
+	Local_League_Pack_Bottom = "rbxassetid://98960037440345",
+	Local_League_Pack_Full = "rbxassetid://95415351413145",
+	Local_League_Pack_Top = "rbxassetid://82753988465047",
 
-	Rising_Talent_Pack_Bottom = "rbxassetid://111173115895263",
-	Rising_Talent_Pack_Full = "rbxassetid://87239923940690",
-	Rising_Talent_Pack_Top = "rbxassetid://117021930957970",
+	Rising_Talent_Pack_Bottom = "rbxassetid://134646428485524",
+	Rising_Talent_Pack_Full = "rbxassetid://83818714486062",
+	Rising_Talent_Pack_Top = "rbxassetid://96195938665797",
 
-	Academy_Elite_Pack_Bottom = "rbxassetid://96888433188439",
-	Academy_Elite_Pack_Full = "rbxassetid://91446915912296",
-	Academy_Elite_Pack_Top = "rbxassetid://94090299839875",
+	Academy_Elite_Pack_Bottom = "rbxassetid://114581647715592",
+	Academy_Elite_Pack_Full = "rbxassetid://118893118184502",
+	Academy_Elite_Pack_Top = "rbxassetid://97579674018897",
 
-	Pro_Debut_Pack_Bottom = "rbxassetid://97315608555067",
-	Pro_Debut_Pack_Full = "rbxassetid://138599460295621",
-	Pro_Debut_Pack_Top = "rbxassetid://86418137735479",
+	Pro_Debut_Pack_Bottom = "rbxassetid://87152888089648",
+	Pro_Debut_Pack_Full = "rbxassetid://106305278236902",
+	Pro_Debut_Pack_Top = "rbxassetid://79630957916687",
 
-	All_Star_Pack_Bottom = "rbxassetid://105351039213873",
-	All_Star_Pack_Full = "rbxassetid://104230608039628",
-	All_Star_Pack_Top = "rbxassetid://84741963936796",
+	All_Star_Pack_Bottom = "rbxassetid://105314447740346",
+	All_Star_Pack_Full = "rbxassetid://130812060427008",
+	All_Star_Pack_Top = "rbxassetid://76933260298661",
 
-	Champions_Pack_Bottom = "rbxassetid://135433343692513",
-	Champions_Pack_Full = "rbxassetid://75796201979654",
-	Champions_Pack_Top = "rbxassetid://89076219917301",
+	Champions_Pack_Bottom = "rbxassetid://75687953701587",
+	Champions_Pack_Full = "rbxassetid://134386234101444",
+	Champions_Pack_Top = "rbxassetid://128497307776957",
 
-	World_Class_Pack_Bottom = "rbxassetid://120141915893374",
-	World_Class_Pack_Full = "rbxassetid://72209890083422",
-	World_Class_Pack_Top = "rbxassetid://120263411611369",
+	World_Class_Pack_Bottom = "rbxassetid://107561156929178",
+	World_Class_Pack_Full = "rbxassetid://115002030838803",
+	World_Class_Pack_Top = "rbxassetid://100911837377918",
 
-	GOAT_Pack_Bottom = "rbxassetid://121181820120307",
-	GOAT_Pack_Full = "rbxassetid://71159831265884",
-	GOAT_Pack_Top = "rbxassetid://73780424119058",
+	GOAT_Pack_Bottom = "rbxassetid://118932630178725",
+	GOAT_Pack_Full = "rbxassetid://76892066343785",
+	GOAT_Pack_Top = "rbxassetid://116915635579349",
 
-	Elite_Contract_Pack_Bottom = "rbxassetid://99587151592634",
-	Elite_Contract_Pack_Full = "rbxassetid://122522100641156",
-	Elite_Contract_Pack_Top = "rbxassetid://127076514059203",
+	Elite_Contract_Pack_Bottom = "rbxassetid://84874929098582",
+	Elite_Contract_Pack_Full = "rbxassetid://95624724611972",
+	Elite_Contract_Pack_Top = "rbxassetid://135434547523908",
 
-	Superstar_Vault_Bottom = "rbxassetid://126677143140163",
-	Superstar_Vault_Full = "rbxassetid://131450234259258",
-	Superstar_Vault_Top = "rbxassetid://120651979772989",
+	Superstar_Vault_Bottom = "rbxassetid://112774951698224",
+	Superstar_Vault_Full = "rbxassetid://91638842975925",
+	Superstar_Vault_Top = "rbxassetid://89657416447766",
 
 	-- Stats
 	Shoot = "rbxassetid://92437273343020",
 	Pass = "rbxassetid://75325465516576",
 	Dribble = "rbxassetid://117288549634340",
+	Stamina = "rbxassetid://92065232334582",
 
 	-- Chests
 	Drip_Pack_Closed = "rbxassetid://134592058210299",

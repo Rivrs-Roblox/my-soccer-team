@@ -34,75 +34,103 @@ function Players(_, hooks)
 	local TeamReducer = RoduxHooks.useSelector(hooks, function(state)
 		return state.TeamReducer
 	end)
+	local currentUI = RoduxHooks.useSelector(hooks, function(state)
+		return state.UIReducer.CurrentUI
+	end)
 
 	local searchText, setSearchText = hooks.useState("")
 
-	local equippedIds = {}
-	if TeamReducer and TeamReducer.EquippedSoccerCharacters then
-		for _, id in pairs(TeamReducer.EquippedSoccerCharacters) do
-			equippedIds[tostring(id)] = true
+	hooks.useEffect(function()
+		if currentUI ~= FramesConstants.Inventory or InventoryReducer.Inventory ~= InventoryConstants.SoccerCharacters then
+			setSearchText("")
+			Store:dispatch(InventoryActions.setDeletingCharacters(false))
 		end
-	end
+	end, { currentUI or "", InventoryReducer.Inventory })
 
-	local SoccerCharactersCards = {}
-	local numCards = 0
-	local totalOwned = 0
-
-	if InventoryReducer.SoccerCharacters then
-		for id, charData in pairs(InventoryReducer.SoccerCharacters) do
-			local templateData = Template.SoccerCharacters[charData.Name]
-			if templateData then
-				totalOwned += 1
-
-				if searchText ~= "" then
-					if not string.find(string.lower(templateData.Name), string.lower(searchText), 1, true) then
-						continue
-					end
-				end
-
-				numCards += 1
-				local stats = GetStats(charData, InventoryReducer.Accessories)
-
-				local isEquipped = equippedIds[tostring(id)] or false
-
-				SoccerCharactersCards[id] = SoccerCharacterCard({
-					id = id,
-					name = templateData.Name,
-					shoot = stats.Shoot,
-					dribble = stats.Dribble,
-					pass = stats.Pass,
-					rarity = templateData.Rarity or "Common",
-					image = UI[templateData.Name] or "",
-					level = charData.Level,
-					card = UI["Card_" .. string.gsub(templateData.Rarity or "Common", " ", "_")],
-					cardMask = UI["Card_" .. string.gsub(templateData.Rarity or "Common", " ", "_") .. "_Mask"],
-					order = (isEquipped and 0 or 1000000)
-						+ (Template.RarityPriority[templateData.Rarity or "Common"] or 100) * 1000
-						+ numCards,
-					equipped = isEquipped,
-					deleting = InventoryReducer.DeletedCharacters[tostring(id)] ~= nil,
-					nationality = templateData.Nationality,
-					onClick = function()
-						if InventoryReducer.DeletingCharacters then
-							if isEquipped then
-								NotificationController:Notify({
-									text = "Cannot delete equipped characters.",
-									type = "ERROR",
-									tag = "Inventory",
-								})
-								return
-							end
-							if InventoryReducer.DeletedCharacters[tostring(id)] then
-								Store:dispatch(InventoryActions.removeDeletedCharacter(id))
-							else
-								Store:dispatch(InventoryActions.addDeletedCharacter(id))
-							end
-						end
-					end,
-				})
+	local equippedIds = hooks.useMemo(function()
+		local ids = {}
+		if TeamReducer and TeamReducer.EquippedSoccerCharacters then
+			for _, id in pairs(TeamReducer.EquippedSoccerCharacters) do
+				ids[tostring(id)] = true
 			end
 		end
-	end
+		return ids
+	end, { TeamReducer and TeamReducer.EquippedSoccerCharacters })
+
+	local memoizedData = hooks.useMemo(function()
+		local cards = {}
+		local count = 0
+		local owned = 0
+
+		if InventoryReducer.SoccerCharacters then
+			for id, charData in pairs(InventoryReducer.SoccerCharacters) do
+				local templateData = Template.SoccerCharacters[charData.Name]
+				if templateData then
+					owned += 1
+
+					if searchText ~= "" then
+						if not string.find(string.lower(templateData.Name), string.lower(searchText), 1, true) then
+							continue
+						end
+					end
+
+					count += 1
+					local stats = GetStats(charData, InventoryReducer.Accessories)
+
+					local isEquipped = equippedIds[tostring(id)] or false
+
+					cards[id] = Roact.createElement(SoccerCharacterCard, {
+						id = id,
+						name = templateData.Name,
+						shoot = stats.Shoot,
+						dribble = stats.Dribble,
+						pass = stats.Pass,
+						rarity = templateData.Rarity or "Common",
+						image = UI[templateData.Name] or "",
+						level = charData.Level,
+						card = UI["Card_" .. string.gsub(templateData.Rarity or "Common", " ", "_")],
+						cardMask = UI["Card_" .. string.gsub(templateData.Rarity or "Common", " ", "_") .. "_Mask"],
+						order = (isEquipped and 0 or 1000000)
+							+ (Template.RarityPriority[templateData.Rarity or "Common"] or 100) * 1000
+							+ count,
+						equipped = isEquipped,
+						deleting = InventoryReducer.DeletedCharacters[tostring(id)] ~= nil,
+						nationality = templateData.Nationality,
+						onClick = function()
+							if InventoryReducer.DeletingCharacters then
+								if isEquipped then
+									NotificationController:Notify({
+										text = "Cannot delete equipped characters.",
+										type = "ERROR",
+										tag = "Inventory",
+									})
+									return
+								end
+								if InventoryReducer.DeletedCharacters[tostring(id)] then
+									Store:dispatch(InventoryActions.removeDeletedCharacter(id))
+								else
+									Store:dispatch(InventoryActions.addDeletedCharacter(id))
+								end
+							end
+						end,
+					})
+				end
+			end
+		end
+		
+		return { cards = cards, count = count, owned = owned }
+	end, {
+		InventoryReducer.SoccerCharacters,
+		InventoryReducer.Accessories,
+		InventoryReducer.DeletingCharacters,
+		InventoryReducer.DeletedCharacters,
+		equippedIds,
+		searchText
+	})
+
+	local SoccerCharactersCards = memoizedData.cards
+	local numCards = memoizedData.count
+	local totalOwned = memoizedData.owned
 	local rows = math.max(1, math.ceil(numCards / 5))
 	local desiredCellHeight = 0.43
 	local desiredCellPadding = 0

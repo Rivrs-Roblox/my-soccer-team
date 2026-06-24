@@ -8,7 +8,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Assets = ReplicatedStorage:WaitForChild("Assets")
 local SoccerCharactersAssets = Assets:WaitForChild("SoccerCharacters")
 local MatchEnemiesAssets = Assets:WaitForChild("MatchEnemies")
-local DEBUG_ENEMY_MODEL_RESOLVE = false
 
 local function PrepareModel(instance: Instance)
 	for _, descendant in ipairs(instance:GetDescendants()) do
@@ -51,9 +50,6 @@ local function FindFallbackModel(modelName: string): Instance?
 	end
 
 	local sourceModel = SoccerCharactersAssets:FindFirstChild(modelName, true)
-	if DEBUG_ENEMY_MODEL_RESOLVE and sourceModel then
-		warn("GetMatchEnemyModel: fallback to SoccerCharacters for", modelName)
-	end
 
 	return sourceModel
 end
@@ -84,15 +80,6 @@ return function(data)
 
 	if not sourceModel and fallbackModelName ~= "" then
 		sourceModel = FindModelInFolder(teamFolder, fallbackModelName)
-		if DEBUG_ENEMY_MODEL_RESOLVE and sourceModel then
-			warn(string.format(
-				"GetMatchEnemyModel: team fallback model %s -> %s in %s/%s",
-				modelName,
-				fallbackModelName,
-				areaFolderName,
-				teamFolderName
-			))
-		end
 	end
 
 	-- Legacy fallback: AreaXX/Enemy01
@@ -102,14 +89,6 @@ return function(data)
 
 	if not sourceModel and fallbackModelName ~= "" then
 		sourceModel = FindModelInFolder(areaFolder, fallbackModelName)
-		if DEBUG_ENEMY_MODEL_RESOLVE and sourceModel then
-			warn(string.format(
-				"GetMatchEnemyModel: area fallback model %s -> %s in %s",
-				modelName,
-				fallbackModelName,
-				areaFolderName
-			))
-		end
 	end
 
 	if not sourceModel then

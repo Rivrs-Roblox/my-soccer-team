@@ -114,6 +114,7 @@ function ShootTrainingRuntime.GetCycleData(totalCount: number, visualState)
 	local intervalDuration = GetIntervalDuration()
 	local localTime = (visualState.ServerStartTime and (Workspace:GetServerTimeNow() - visualState.ServerStartTime))
 		or 0
+	localTime = localTime * (visualState.Level or 1)
 
 	local cycleIndex = math.floor(localTime / intervalDuration)
 	local shooterIndex = (cycleIndex % totalCount) + 1
@@ -172,6 +173,28 @@ function ShootTrainingRuntime.GetState(actorIndex: number, totalCount: number, v
 	local rawActorTime = cycle.LocalTime - actorOffset
 	local actorLocalTime = rawActorTime % totalLoopDuration
 	local actorCycleIndex = math.floor(rawActorTime / totalLoopDuration)
+
+	if visualState.IsResting and visualState.PauseRealTime then
+		local timeSincePause = Workspace:GetServerTimeNow() - visualState.PauseRealTime
+		local s = Settings.Shoot
+		local postShootTime = s.MoveToShootDuration + s.ReadyToShootDuration + s.ShootDuration
+		
+		if actorLocalTime >= postShootTime then
+			actorLocalTime = actorLocalTime + timeSincePause
+		end
+	end
+
+	visualState.MaxActorLocalTime = visualState.MaxActorLocalTime or {}
+	visualState.MaxActorCycle = visualState.MaxActorCycle or {}
+
+	if visualState.MaxActorCycle[actorIndex] ~= actorCycleIndex then
+		visualState.MaxActorCycle[actorIndex] = actorCycleIndex
+		visualState.MaxActorLocalTime[actorIndex] = actorLocalTime
+	else
+		visualState.MaxActorLocalTime[actorIndex] = math.max(visualState.MaxActorLocalTime[actorIndex] or 0, actorLocalTime)
+	end
+
+	actorLocalTime = visualState.MaxActorLocalTime[actorIndex]
 
 	if rawActorTime >= 0 and actorLocalTime < totalJourneyDuration then
 		-- Actor is currently in their active journey (shooting or returning)
