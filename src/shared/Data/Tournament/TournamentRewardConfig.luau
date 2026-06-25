@@ -6,27 +6,27 @@
 local TournamentRewardConfig = {}
 
 TournamentRewardConfig.LeagueBaseByAreaId = table.freeze({
-	Area01 = 25, -- Street
-	Area02 = 250000, -- Amateur
-	Area03 = 2500000000, -- Pro
-	Area04 = 25000000000000, -- World
-	Area05 = 250000000000000, -- Legend
+	Area01 = 125, -- Street
+	Area02 = 11200, -- Amateur
+	Area03 = 187000, -- Pro
+	Area04 = 2500000, -- World
+	Area05 = 37300000, -- Legend
 })
 
 TournamentRewardConfig.LeagueBaseByKey = table.freeze({
-	Street = 25,
-	Amateur = 250000,
-	Pro = 2500000000,
-	World = 25000000000000,
-	Legend = 250000000000000,
+	Street = 125,
+	Amateur = 11200,
+	Pro = 187000,
+	World = 2500000,
+	Legend = 37300000,
 })
 
 TournamentRewardConfig.QteMultiplierByStep = table.freeze({
 	[1] = 1,
-	[2] = 2,
-	[3] = 4,
-	[4] = 8,
-	[5] = 16,
+	[2] = 1,
+	[3] = 1,
+	[4] = 1,
+	[5] = 1,
 })
 
 TournamentRewardConfig.RoundMultiplierById = table.freeze({
@@ -38,9 +38,9 @@ TournamentRewardConfig.RoundMultiplierById = table.freeze({
 
 TournamentRewardConfig.RoundMultiplierByIndex = table.freeze({
 	[1] = 1,
-	[2] = 2,
-	[3] = 4,
-	[4] = 8,
+	[2] = 1,
+	[3] = 1,
+	[4] = 1,
 })
 
 TournamentRewardConfig.MaxQteStep = 5

@@ -20,7 +20,7 @@ return table.freeze({
 				"Richarlisyun",
 				"Martin Odegard",
 			},
-			["Price"] = 383,
+			["Price"] = 500,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -48,7 +48,7 @@ return table.freeze({
 				"Mayson Mounty",
 				"Declean Rise",
 			},
-			["Price"] = 895,
+			["Price"] = 1000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -73,7 +73,7 @@ return table.freeze({
 				"Frankie De Jongg",
 				"Bakayo Sakko",
 			},
-			["Price"] = 6_390_000,
+			["Price"] = 80_000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -99,7 +99,7 @@ return table.freeze({
 				"Berniado Silvo",
 				"Phil Foder",
 			},
-			["Price"] = 14_910_000,
+			["Price"] = 270_000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -125,7 +125,7 @@ return table.freeze({
 				"Kvaratskeliya",
 				"Erlin Haland",
 			},
-			["Price"] = 137_700_000_000,
+			["Price"] = 2_200_000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -151,7 +151,7 @@ return table.freeze({
 				"Victor Ohismen",
 				"Robert Lewandosky",
 			},
-			["Price"] = 321_300_000_000,
+			["Price"] = 5_000_000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -177,7 +177,7 @@ return table.freeze({
 				"Kilian Mbape",
 				"Ousmana Dembala",
 			},
-			["Price"] = 3_150_000_000_000_000,
+			["Price"] = 32_000_000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -203,7 +203,7 @@ return table.freeze({
 				"Hery Ken",
 				"David Bekam",
 			},
-			["Price"] = 7_350_000_000_000_000,
+			["Price"] = 75_000_000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
@@ -241,7 +241,7 @@ return table.freeze({
 				"GOLD Ousmana Dembala",
 				"GOLD Erlin Haland",
 			},
-			["Price"] = 99_270_000_000_000_000,
+			["Price"] = 180_000_000,
 			["Prerequisite"] = {
 				["Rebirth"] = 0,
 				["Goals"] = 0,
