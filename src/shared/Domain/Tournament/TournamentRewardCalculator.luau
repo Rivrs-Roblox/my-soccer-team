@@ -1,7 +1,7 @@
 --!strict
 -- TournamentRewardCalculator.luau
 -- Pure reward math for tournament matches.
--- Reward = LeagueBase * QteMultiplier * RoundMultiplier.
+-- Reward = LeagueBase * RoundMultiplier.
 
 local TournamentRewardConfig = require(script.Parent.Parent.Parent.Data.Tournament.TournamentRewardConfig)
 local TournamentConfig = require(script.Parent.TournamentConfig)
@@ -46,8 +46,14 @@ local function ResolveRoundMultiplier(context): number
 	return TournamentRewardConfig.RoundMultiplierByIndex[1]
 end
 
-local function ResolveQteMultiplier(stepIndex: number): number
-	return TournamentRewardConfig.QteMultiplierByStep[stepIndex] or 0
+local function ResolveTotalRewardMultiplier(context): number
+	local hasDoubleWins = IsTable(context) and context.HasDoubleWins == true
+	local hasVipBattlePass = IsTable(context) and context.HasVipBattlePass == true
+
+	local winsMultiplier = hasDoubleWins and 2 or 1
+	local vipMultiplier = hasVipBattlePass and 2 or 1
+
+	return winsMultiplier * vipMultiplier
 end
 
 local function ResolveRequiredPlayerGoals(context): number
@@ -66,37 +72,6 @@ local function ResolveRequiredPlayerGoals(context): number
 	return 1
 end
 
-local function HasSuccessfulStep(successfulSteps, stepIndex: number): boolean
-	if successfulSteps == nil then
-		return true
-	end
-
-	if type(successfulSteps) ~= "table" then
-		return false
-	end
-
-	local directValue = successfulSteps[stepIndex]
-	if directValue == true then
-		return true
-	end
-
-	if tonumber(directValue) == stepIndex then
-		return true
-	end
-
-	for _, value in pairs(successfulSteps) do
-		if value == true and tonumber(_) == stepIndex then
-			return true
-		end
-
-		if tonumber(value) == stepIndex then
-			return true
-		end
-	end
-
-	return false
-end
-
 function TournamentRewardCalculator.GetLeagueBase(context): number
 	return ResolveLeagueBase(context)
 end
@@ -105,30 +80,12 @@ function TournamentRewardCalculator.GetRoundMultiplier(context): number
 	return ResolveRoundMultiplier(context)
 end
 
-function TournamentRewardCalculator.GetQteMultiplier(stepIndex: number): number
-	return ResolveQteMultiplier(stepIndex)
-end
-
-function TournamentRewardCalculator.CalculateStepReward(context, stepIndex: number): number
-	local base = ResolveLeagueBase(context)
-	local qteMultiplier = ResolveQteMultiplier(stepIndex)
-	local roundMultiplier = ResolveRoundMultiplier(context)
-
-	return math.max(0, math.floor(base * qteMultiplier * roundMultiplier))
-end
-
 function TournamentRewardCalculator.CalculateTotalReward(context): number
-	local total = 0
-	local successfulSteps = IsTable(context) and context.SuccessfulQteSteps or nil
-	local maxStep = TournamentRewardConfig.MaxQteStep
+	local base = ResolveLeagueBase(context)
+	local roundMultiplier = ResolveRoundMultiplier(context)
+	local totalRewardMultiplier = ResolveTotalRewardMultiplier(context)
 
-	for stepIndex = 1, maxStep do
-		if HasSuccessfulStep(successfulSteps, stepIndex) then
-			total += TournamentRewardCalculator.CalculateStepReward(context, stepIndex)
-		end
-	end
-
-	return total
+	return math.max(0, math.floor(base * roundMultiplier * totalRewardMultiplier))
 end
 
 function TournamentRewardCalculator.GetRequiredPlayerGoals(context): number
@@ -150,7 +107,8 @@ function TournamentRewardCalculator.BuildRoundPreview(context)
 		RoundId = IsTable(context) and context.RoundId or nil,
 		RoundIndex = IsTable(context) and context.RoundIndex or nil,
 		RequiredPlayerGoals = IsTable(context) and context.RequiredPlayerGoals or nil,
-		SuccessfulQteSteps = nil, -- nil means full 5-QTE clear preview.
+		HasDoubleWins = IsTable(context) and context.HasDoubleWins or false,
+		HasVipBattlePass = IsTable(context) and context.HasVipBattlePass or false,
 	})
 	local requiredGoals = ResolveRequiredPlayerGoals(context)
 	local rewardPerGoal = math.max(0, math.floor(total / requiredGoals))
@@ -160,7 +118,7 @@ function TournamentRewardCalculator.BuildRoundPreview(context)
 		RewardPerGoalWins = rewardPerGoal,
 		RequiredPlayerGoals = requiredGoals,
 		RewardText = tostring(total) .. " Wins",
-		Formula = "LeagueBase x QteMultiplier x RoundMultiplier",
+		Formula = "LeagueBase x RoundMultiplier",
 	}
 end
 
