@@ -365,7 +365,7 @@ function StarterPack(_, hooks)
 				Position = UDim2.fromScale(0.181, 0.542),
 				BackgroundColor3 = Color3.fromHex("ffffff"),
 				ZIndex = 101,
-				Image = "rbxassetid://120721734256008",
+				Image = "rbxassetid://110518086056999",
 				Size = UDim2.fromScale(0.495, 1.059),
 			}, {
 				Ratio = Roact.createElement("UIAspectRatioConstraint", {}),

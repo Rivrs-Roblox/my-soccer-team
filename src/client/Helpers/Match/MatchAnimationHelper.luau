@@ -202,6 +202,7 @@ function MatchAnimationHelper.Play(cacheTable, model: Model, requestedName: stri
 		local currentTrack = state.Tracks[currentName]
 		if currentTrack and currentTrack.IsPlaying then
 			currentTrack:AdjustSpeed(speed)
+			currentTrack:SetAttribute("BaseSpeed", speed)
 			return currentTrack
 		end
 	end
@@ -222,6 +223,7 @@ function MatchAnimationHelper.Play(cacheTable, model: Model, requestedName: stri
 	end
 
 	track:AdjustSpeed(speed)
+	track:SetAttribute("BaseSpeed", speed)
 
 	-- Logic to ensure the track is playing without resetting it every frame.
 	-- If it's a new animation (switching) or the current one somehow stopped, we play it.
@@ -234,8 +236,10 @@ function MatchAnimationHelper.Play(cacheTable, model: Model, requestedName: stri
 			end
 		end
 		track:Play(fadeTime, 1, speed)
+		track:SetAttribute("BaseSpeed", speed)
 	else
 		track:AdjustSpeed(speed)
+		track:SetAttribute("BaseSpeed", speed)
 		track:AdjustWeight(1, fadeTime)
 	end
 
@@ -256,7 +260,7 @@ function MatchAnimationHelper.ResetModel(cacheTable, model: Model)
 		end)
 	end
 
-cacheTable[model] = nil
+	cacheTable[model] = nil
 end
 
 function MatchAnimationHelper.StopAll(cacheTable)

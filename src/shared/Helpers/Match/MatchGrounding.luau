@@ -74,6 +74,16 @@ function MatchGrounding.GetCharacterRootGroundClearance(character: Model?): numb
 	if not character then
 		return 3.0
 	end
+
+	-- Owned SoccerCharacter models are authored with their model pivot at foot
+	-- level. Their normal overworld updater also PivotTo()s the ground hit
+	-- directly, without a Humanoid/root clearance. Keep the same contract in a
+	-- match; adding a calculated clearance here makes companions float.
+	if character:GetAttribute("Owner") ~= nil and character:GetAttribute("SoccerCharacter") ~= nil then
+		character:SetAttribute("CachedGroundClearance", 0)
+		return 0
+	end
+
 	--
 	local cached = character:GetAttribute("CachedGroundClearance")
 	if cached then

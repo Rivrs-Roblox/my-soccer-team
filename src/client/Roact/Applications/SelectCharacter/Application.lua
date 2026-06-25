@@ -61,7 +61,7 @@ function SelectCharacter(_, hooks)
 
 			SoccerCharacters[id] = SoccerCharacterCard({
 				id = id,
-				name = templateData.Name,
+				name = templateData.DisplayName or templateData.Name,
 				shoot = stats.Shoot,
 				dribble = stats.Dribble,
 				pass = stats.Pass,

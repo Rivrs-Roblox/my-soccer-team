@@ -189,13 +189,6 @@ function MatchWorldService:KnitStart()
 		cachedPlayerSpawnCFrame = spawn.CFrame
 	end
 	ConfigureFootballFloor(FindFootballFloorDeep())
-	local isValid, errors = self:ValidateSetup()
-
-	if not isValid then
-		for _, message in ipairs(errors) do
-			warn("[MatchWorldService] " .. message)
-		end
-	end
 end
 
 return MatchWorldService

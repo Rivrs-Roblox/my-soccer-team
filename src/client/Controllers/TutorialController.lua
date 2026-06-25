@@ -581,7 +581,7 @@ function TutorialController:KnitStart()
 			end
 
 			MatchService.MatchSessionEnded:Connect(function(reason, sessionId)
-				if currentTutorialStep == 1 or currentTutorialStep == 6 then
+				if currentTutorialStep == 1 or currentTutorialStep == 7 then
 					self:TutorialNextStep(false)
 				end
 			end)
@@ -625,21 +625,21 @@ function TutorialController:KnitStart()
 			end)
 
 			GachaService.GachaOpened:Connect(function(items, type, category)
-				if currentTutorialStep == 7 and category == "SoccerCharacters" then
+				if currentTutorialStep == 8 and category == "SoccerCharacters" then
 					self:TutorialNextStep(false)
-				elseif currentTutorialStep == 9 and category == "Accessories" then
+				elseif currentTutorialStep == 10 and category == "Accessories" then
 					self:TutorialNextStep(false)
 				end
 			end)
 
 			TeamService.TeamSlotSet:Connect(function(equippedSlots)
-				if currentTutorialStep == 8 then
+				if currentTutorialStep == 9 then
 					self:TutorialNextStep(false)
 				end
 			end)
 
 			AccessoryService.AccessoriesUpdated:Connect(function()
-				if currentTutorialStep == 10 then
+				if currentTutorialStep == 11 then
 					self:TutorialNextStep(false)
 				end
 			end)

@@ -271,7 +271,7 @@ function Trading(_, hooks)
 		MySoccerCharacters[item.id] = SoccerCharacter({
 			trading = item.trading,
 			icon = getSoccerCharacterIcon(item.charData.Name),
-			name = item.charData.Name,
+			name = templateData.DisplayName or item.charData.Name,
 			id = item.id,
 			power = `{item.charData.Level} ⭐`,
 			bg_color = getSoccerCharacterColor(templateData.Rarity),
@@ -329,7 +329,7 @@ function Trading(_, hooks)
 		HisSoccerCharacters[item.id] = SoccerCharacter({
 			trading = true,
 			icon = getSoccerCharacterIcon(item.charData.Name),
-			name = item.charData.Name,
+			name = templateData.DisplayName or item.charData.Name,
 			id = item.id,
 			power = `{item.charData.Level} ⭐`,
 			bg_color = getSoccerCharacterColor(templateData.Rarity),

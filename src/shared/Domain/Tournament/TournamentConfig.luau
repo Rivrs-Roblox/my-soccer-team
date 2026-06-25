@@ -58,24 +58,36 @@ TournamentConfig.LiveMatch = table.freeze({
 	-- RequiredPlayerGoals is also the reward divisor for per-goal Wins.
 	RoundGoalTargets = table.freeze({
 		RoundOf16 = table.freeze({
-			Player = 0,
-			Opponent = 3,
-			RequiredPlayerGoals = 4,
+			RequiredPlayerGoals = 3,
+			PossibleScores = table.freeze({
+				{ Player = 0, Opponent = 2 },
+				{ Player = 1, Opponent = 3 },
+				{ Player = 2, Opponent = 4 },
+			}),
 		}),
 		QuarterFinal = table.freeze({
-			Player = 0,
-			Opponent = 2,
-			RequiredPlayerGoals = 3,
+			RequiredPlayerGoals = 2,
+			PossibleScores = table.freeze({
+				{ Player = 0, Opponent = 1 },
+				{ Player = 1, Opponent = 2 },
+				{ Player = 2, Opponent = 3 },
+			}),
 		}),
 		SemiFinal = table.freeze({
-			Player = 0,
-			Opponent = 1,
 			RequiredPlayerGoals = 2,
+			PossibleScores = table.freeze({
+				{ Player = 0, Opponent = 1 },
+				{ Player = 1, Opponent = 2 },
+				{ Player = 2, Opponent = 3 },
+			}),
 		}),
 		Final = table.freeze({
-			Player = 0,
-			Opponent = 0,
 			RequiredPlayerGoals = 1,
+			PossibleScores = table.freeze({
+				{ Player = 0, Opponent = 0 },
+				{ Player = 1, Opponent = 1 },
+				{ Player = 2, Opponent = 2 },
+			}),
 		}),
 	}),
 

@@ -454,6 +454,7 @@ end
 
 function MatchPresentationController:_runMovementSequence(payload, params)
 	local speeds = self:_getSpeedConfig(params.SpeedGroupName, params.SpeedActionName or payload.Action)
+	local actorMovementSpeed = tonumber(params.ActorMoveSpeed) or speeds.Actor
 
 	local actorStartPos = GetGroundedPosition(params.ActorStartCFrame.Position, params.ActorModel)
 	local enemyStartPos = GetGroundedPosition(
@@ -491,12 +492,19 @@ function MatchPresentationController:_runMovementSequence(payload, params)
 	end
 
 	if params.EnemyModel then
+		local enemyRuntimeSlot = self._getEnemyRuntimeSlotFromModel and self:_getEnemyRuntimeSlotFromModel(params.EnemyModel)
+		local isKeeper = enemyRuntimeSlot == GOALKEEPER_RUNTIME_SLOT
+			or params.EnemyModel.Name == "GoalKeeper"
+			or params.EnemyModel.Name == "Keeper"
+
 		self:_playRigAnimation(
 			params.EnemyModel,
-			enemyState.CanMove and (params.EnemyRunAnimation or "Run")
-				or ((params.ShadowTargetResolver and (params.EnemyRunAnimation or "Run")) or (params.EnemyIdleAnimation or "Idle")),
-			enemyState.CanMove and (params.EnemyRunSpeed or 0.95)
-				or ((params.ShadowTargetResolver and (params.ShadowRunSpeed or IDLE_ENEMY_RUN_SPEED)) or 1)
+			isKeeper and "Idle"
+				or (enemyState.CanMove and (params.EnemyRunAnimation or "Run")
+				or ((params.ShadowTargetResolver and (params.EnemyRunAnimation or "Run")) or (params.EnemyIdleAnimation or "Idle"))),
+			isKeeper and 1.0
+				or (enemyState.CanMove and (params.EnemyRunSpeed or 0.95)
+				or ((params.ShadowTargetResolver and (params.ShadowRunSpeed or IDLE_ENEMY_RUN_SPEED)) or 1))
 		)
 	end
 
@@ -544,7 +552,7 @@ function MatchPresentationController:_runMovementSequence(payload, params)
 			actorState,
 			actorTargetPos,
 			params.ActorLookPos,
-			speeds.Actor,
+			actorMovementSpeed,
 			scaledDeltaTime,
 			keepActorAdvancingUntilQte,
 			params.ActorRunAnimation or "Run"
@@ -1206,7 +1214,7 @@ function MatchPresentationController:_handleApproachStarted(payload)
 		end
 	end
 
-	local postApproachActorAnimation = payload.Action == "Shoot" and "Shoot"
+	local postApproachActorAnimation = payload.Action == "Shoot" and "Run"
 		or (payload.Action == "Dribble" and "Dribble")
 		or "Run"
 
@@ -1225,10 +1233,6 @@ function MatchPresentationController:_handleApproachStarted(payload)
 
 	-- Do not force Idle here. The pre-QTE freeze director will hold the current pose.
 	-- Forcing Idle before QTE creates the perceived post-dribble pause.
-
-	if enemyModel then
-		self:_playMotionAnimation(enemyModel, "Idle", 1.0)
-	end
 
 	self:_waitForPreQteReady(
 		payload,
@@ -1283,7 +1287,7 @@ function MatchPresentationController:_handleApproachStarted(payload)
 
 	ApplyPivot(enemyModel, MatchMotionMath.BuildFlatLookAtCFrame(finalEnemyPos, finalActorPos))
 
-	self:_preparePreQtePresentation(payload, actorModel)
+	self:_preparePreQtePresentation(payload, actorModel, enemyModel)
 	self:_applyPreQteHoldPose(payload, actorModel, enemyModel)
 	self:_waitForSessionFrames(payload.SessionId, 2)
 

@@ -31,6 +31,7 @@ local function isTrainingZonePart(instance: Instance): boolean
 	return string.match(name, "^ShootZone%d+$")
 		or string.match(name, "^PassZone%d+$")
 		or string.match(name, "^DribbleZone%d+$")
+		or string.match(name, "^StaminaZone%d+$")
 end
 
 local function getTrainingMap(): Instance?

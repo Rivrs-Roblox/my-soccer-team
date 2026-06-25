@@ -12,9 +12,11 @@ return function(gachaData)
 	if gachaData and gachaData.Items then
 		for i, characterName in ipairs(gachaData.Items) do
 			local rarity = "Common"
+			local displayName = characterName
 			
 			if SoccerCharacters[characterName] then
 				rarity = SoccerCharacters[characterName].Rarity
+				displayName = SoccerCharacters[characterName].DisplayName or characterName
 			elseif Accessories[characterName] then
 				rarity = Accessories[characterName].Rarity
 			end
@@ -22,7 +24,7 @@ return function(gachaData)
 			local color = Colors[rarity] or Color3.new(1, 1, 1)
 			local colorHex = toHex(color)
 			
-			hoverDescription ..= string.format('<font color="%s">%s</font>', colorHex, characterName)
+			hoverDescription ..= string.format('<font color="%s">%s</font>', colorHex, displayName)
 			
 			if i < #gachaData.Items then
 				hoverDescription ..= "\n"

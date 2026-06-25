@@ -523,6 +523,7 @@ function DataService:TutorialFinished(player: Player, state: boolean)
 	end
 
 	data.TutorialComplete = true
+	FunnelsModule:LogOnboardingStep(player, 13)
 	self.Client.TutorialCompleted:Fire(player)
 	self.TutorialCompletedSignal:Fire(player)
 end

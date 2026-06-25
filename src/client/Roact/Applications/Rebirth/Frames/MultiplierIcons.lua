@@ -20,7 +20,7 @@ return function(params: table)
 		BorderColor3 = Color3.fromHex("000000"),
 		BackgroundColor3 = Color3.fromHex("ffffff"),
 		BorderSizePixel = 0,
-		Size = UDim2.fromScale(0.15, 1),
+		Size = UDim2.fromScale(0.2, 1),
 	}, {
 		Icon2 = Roact.createElement("ImageLabel", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
@@ -48,6 +48,16 @@ return function(params: table)
 			BackgroundTransparency = 1,
 			Position = UDim2.fromScale(0.5, 0.5),
 			LayoutOrder = 3,
+			BackgroundColor3 = Color3.fromHex("ffffff"),
+			ScaleType = 3,
+			Size = UDim2.fromScale(1, 1),
+		}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
+		Icon4 = Roact.createElement("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Image = UI.Stamina,
+			BackgroundTransparency = 1,
+			Position = UDim2.fromScale(0.5, 0.5),
+			LayoutOrder = 4,
 			BackgroundColor3 = Color3.fromHex("ffffff"),
 			ScaleType = 3,
 			Size = UDim2.fromScale(1, 1),

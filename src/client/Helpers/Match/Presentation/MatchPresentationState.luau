@@ -33,6 +33,7 @@ function State.CreateControllerDefinition()
 		FrozenRigModels = {},
 		IsPreQteFrozen = false,
 		HiddenEmbeddedBallParts = {},
+		ActiveEmbeddedBallVisualModel = nil,
 		DefeatedEnemyRecoveryTokens = {},
 		EnemyMotionLocks = {},
 		QteFreezeToken = 0,
@@ -722,14 +723,18 @@ end
 	end
 
 	function MatchPresentationController:_hideNonCarrierEmbeddedBalls(carrierSlot)
-		-- Keep exactly one match ball: the official ball owned by self.MatchBallController.
-		-- Any embedded ball inside player/companion/enemy rigs is always hidden during match.
-		-- Previous logic allowed the active companion's embedded ball to remain visible,
-		-- which caused double-ball visuals when self.MatchBallController also attached its ball.
+		-- Normally the official runtime ball is the only visible ball. A dribble trick may
+		-- temporarily opt one actor's authored embedded ball into visibility.
+		local activeEmbeddedBallModel = self.ActiveEmbeddedBallVisualModel
+		if activeEmbeddedBallModel and not activeEmbeddedBallModel.Parent then
+			self.ActiveEmbeddedBallVisualModel = nil
+			activeEmbeddedBallModel = nil
+		end
+
 		for slotNumber = 1, 4 do
 			local actorModel = self:_getControlledActorModel(slotNumber)
 			if actorModel then
-				self:_setEmbeddedBallVisualsHidden(actorModel, true)
+				self:_setEmbeddedBallVisualsHidden(actorModel, actorModel ~= activeEmbeddedBallModel)
 			end
 		end
 
@@ -739,6 +744,32 @@ end
 				self:_setEmbeddedBallVisualsHidden(enemyModel, true)
 			end
 		end
+	end
+
+	function MatchPresentationController:_setActiveEmbeddedBallVisualModel(model)
+		local previousModel = self.ActiveEmbeddedBallVisualModel
+		if previousModel and previousModel ~= model then
+			self:_setEmbeddedBallVisualsHidden(previousModel, true)
+		end
+
+		self.ActiveEmbeddedBallVisualModel = model
+		if model then
+			self:_setEmbeddedBallVisualsHidden(model, false)
+		end
+
+		self:_hideNonCarrierEmbeddedBalls(self.ActiveActorSlot)
+	end
+
+	function MatchPresentationController:_clearActiveEmbeddedBallVisualModel(model)
+		local activeModel = self.ActiveEmbeddedBallVisualModel
+		if model and activeModel and model ~= activeModel then
+			return
+		end
+
+		if activeModel then
+			self:_setEmbeddedBallVisualsHidden(activeModel, true)
+		end
+		self.ActiveEmbeddedBallVisualModel = nil
 	end
 
 	function MatchPresentationController:_startEmbeddedBallVisualGuard(sessionId)
@@ -774,6 +805,7 @@ end
 	end
 
 	function MatchPresentationController:_restoreEmbeddedBallVisuals()
+		self.ActiveEmbeddedBallVisualModel = nil
 		for part, original in pairs(self.HiddenEmbeddedBallParts) do
 			if part and part.Parent and original then
 				part.Transparency = original.Transparency

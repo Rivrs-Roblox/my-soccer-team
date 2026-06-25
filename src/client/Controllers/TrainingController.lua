@@ -20,6 +20,7 @@ local Settings = require(Helpers.Training.Settings)
 local GetTableAmount = require(Helpers.Table.GetTableAmount)
 local GetAngleDistance = require(Helpers.Math.GetAngleDistance)
 local FormatNumber = require(Helpers.Numbers.FormatNumber)
+local UIJuice = require(script.Parent.Parent.Helpers.UIJuice)
 
 -- Knit Services
 local TrainingService
@@ -431,11 +432,21 @@ function TrainingController:_setupTrainingOptionsUI(statType)
 						top.RewardText.Text = "+" .. FormatNumber(statData[level].RewardPerTick) .. "/s"
 					end
 
-					if bottom and bottom:FindFirstChild("StaminaCostText", true) then
+					if
+						bottom
+						and bottom:FindFirstChild("StaminaCostText", true)
+						and bottom:FindFirstChild("LeftText", true)
+					then
 						bottom.Visible = true
 						local cost = statData[level].StaminaCostPerTick
 						self.CurrentTrainingCosts[level] = cost
-						bottom.StaminaCostText.Text = FormatNumber(cost) .. "/s"
+						if statType == "Stamina" then
+							bottom.LeftText.Text = "Req:"
+							bottom.StaminaCostText.Text = FormatNumber(cost)
+						else
+							bottom.LeftText.Text = "-"
+							bottom.StaminaCostText.Text = FormatNumber(cost) .. "/s"
+						end
 
 						local maxStamina = data and data.Stats and data.Stats.Stamina or 100
 						if maxStamina < cost then
@@ -454,6 +465,28 @@ function TrainingController:_stripScripts(model: Model)
 	for _, descendant in ipairs(model:GetDescendants()) do
 		if descendant:IsA("BaseScript") then
 			descendant:Destroy()
+		end
+	end
+end
+
+function TrainingController:_updateTrainingZoneBeams(zoneKey: string?, statType: string?, speed: number)
+	if type(zoneKey) ~= "string" or zoneKey == "" then
+		return
+	end
+
+	local zone = TrainingZoneUtils.FindZoneByKey(zoneKey)
+	if not zone then
+		return
+	end
+
+	local actualSpeed = speed
+	if statType == "Stamina" then
+		actualSpeed = speed * 3
+	end
+
+	for _, descendant in ipairs(zone:GetDescendants()) do
+		if descendant:IsA("Beam") and descendant.Name == "Beam" then
+			descendant.TextureSpeed = actualSpeed
 		end
 	end
 end
@@ -2493,6 +2526,8 @@ function TrainingController:KnitInit()
 	self.TrainingConfig = DataCacheController:GetFile("TrainingConfig")
 	self.Template = DataCacheController:GetFile("Template")
 
+	self.StaminaDepleted = false
+
 	local rootFolder = Instance.new("Folder")
 	rootFolder.Name = "TrainingVisuals"
 	rootFolder.Parent = workspace
@@ -2574,13 +2609,15 @@ function TrainingController:KnitStart()
 							end
 						end
 
-						local ti1 = TweenInfo.new(dur1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, 0, false, delay1)
-						local ti2 = TweenInfo.new(dur2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, 0, false, delay2)
+						local ti1 =
+							TweenInfo.new(dur1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, 0, false, delay1)
+						local ti2 =
+							TweenInfo.new(dur2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, 0, false, delay2)
 
-						TweenService:Create(grad1, ti1, {Rotation = rot1}):Play()
-						TweenService:Create(grad2, ti2, {Rotation = rot2}):Play()
+						TweenService:Create(grad1, ti1, { Rotation = rot1 }):Play()
+						TweenService:Create(grad2, ti2, { Rotation = rot2 }):Play()
 					end
-					
+
 					self.LastTempStamina = tempStamina
 				end
 
@@ -2623,6 +2660,14 @@ function TrainingController:KnitStart()
 					self:_setupTrainingOptionsUI(statType)
 				else
 					self.CurrentStatType = nil
+					self.StaminaDepleted = false
+					local bar = trainingOptionsGui:FindFirstChild("StaminaBar", true)
+					local icon = bar and bar:FindFirstChild("Icon")
+					if icon then
+						icon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+						icon.Rotation = 0
+						UIJuice.Cancel(icon)
+					end
 				end
 			end
 
@@ -2640,7 +2685,17 @@ function TrainingController:KnitStart()
 						IsResting = false,
 					})
 				end
+
+				if targetPlayer == player then
+					self:_updateTrainingZoneBeams(zoneKey, statType, level or 1)
+				end
 			else
+				if targetPlayer == player then
+					local visualState = self.VisualStates[targetPlayer]
+					if visualState then
+						self:_updateTrainingZoneBeams(visualState.ZoneKey, nil, 1)
+					end
+				end
 				self:SetVisualState(targetPlayer, nil)
 			end
 		end
@@ -2650,6 +2705,66 @@ function TrainingController:KnitStart()
 		local visualState = self.VisualStates[player]
 		if visualState then
 			visualState.IsResting = isResting
+
+			if isResting then
+				self:_updateTrainingZoneBeams(visualState.ZoneKey, nil, 1)
+			else
+				self:_updateTrainingZoneBeams(visualState.ZoneKey, visualState.StatType, visualState.Level or 1)
+			end
+		end
+
+		if trainingOptionsGui and trainingOptionsGui.Enabled then
+			local bar = trainingOptionsGui:FindFirstChild("StaminaBar", true)
+			local icon = bar and bar:FindFirstChild("Icon")
+			if icon then
+				if isResting then
+					if not self.StaminaDepleted then
+						self.StaminaDepleted = true
+						icon.ImageColor3 = Color3.fromRGB(255, 75, 75)
+
+						UIJuice.Punch(icon, { PeakScale = 1.3, UpDuration = 0.07, DownDuration = 0.14 })
+
+						task.spawn(function()
+							local originalRotation = icon.Rotation
+							local tweenInfo =
+								TweenInfo.new(0.04, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true)
+
+							for _, angle in ipairs({ 12, -12, 8, -8, 4, -4 }) do
+								local tween = TweenService:Create(icon, tweenInfo, { Rotation = angle })
+								tween:Play()
+								tween.Completed:Wait()
+							end
+							icon.Rotation = originalRotation
+						end)
+
+						task.spawn(function()
+							local scale = UIJuice.GetScale(icon)
+							if not scale then
+								return
+							end
+
+							while self.StaminaDepleted and icon.Parent do
+								local tweenInfo =
+									TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, 0, true)
+								local pulseTween = TweenService:Create(scale, tweenInfo, { Scale = 1.15 })
+								pulseTween:Play()
+								pulseTween.Completed:Wait()
+								task.wait(0.15)
+							end
+
+							if scale.Parent then
+								TweenService:Create(scale, TweenInfo.new(0.2), { Scale = 1 }):Play()
+							end
+						end)
+					end
+				else
+					if self.StaminaDepleted then
+						self.StaminaDepleted = false
+						TweenService:Create(icon, TweenInfo.new(0.3), { ImageColor3 = Color3.fromRGB(255, 255, 255) })
+							:Play()
+					end
+				end
+			end
 		end
 	end)
 
@@ -2657,11 +2772,26 @@ function TrainingController:KnitStart()
 		local visualState = self.VisualStates[targetPlayer]
 		if visualState then
 			visualState.Level = level
+
+			if targetPlayer == player and not visualState.IsResting then
+				self:_updateTrainingZoneBeams(visualState.ZoneKey, visualState.StatType, level)
+			end
 		end
 
 		if targetPlayer == player then
 			currentTrainingLevel = level
 			self:_updateTrainingOptionsSelection()
+		end
+	end)
+
+	TrainingService.TrainingDrainingStateChanged:Connect(function(targetPlayer, isDraining, timeUntilZero)
+		local visualState = self.VisualStates[targetPlayer]
+		if visualState then
+			visualState.IsDraining = isDraining
+			if isDraining then
+				visualState.DrainStartTime = Workspace:GetServerTimeNow()
+				visualState.DrainTotalTime = timeUntilZero
+			end
 		end
 	end)
 

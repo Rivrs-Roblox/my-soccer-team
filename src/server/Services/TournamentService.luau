@@ -203,11 +203,13 @@ function TournamentService:ApplyMatchResult(player: Player, didWin: boolean, pla
 	if state.Status == "Champion" then
 		self.Client.TournamentCompleted:Fire(player, payload)
 	elseif state.Status == "Lost" then
-		-- MVP reset: next match starts from a fresh Round of 16 bracket.
+		-- Prepare the next attempt immediately, but return the terminal loss payload
+		-- to the caller. MatchService must observe "Lost" for this completed match;
+		-- the reset payload is only the state used by the next explicit play request.
 		local resetState = self:_createTournament(player, state.AreaId)
 		local resetPayload = TournamentQuery.BuildPreviewPayload(resetState)
 		self.Client.TournamentUpdated:Fire(player, resetPayload)
-		return resetPayload
+		return payload
 	end
 
 	return payload

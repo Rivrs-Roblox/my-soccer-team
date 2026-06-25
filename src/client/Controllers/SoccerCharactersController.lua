@@ -466,7 +466,7 @@ function SoccerCharactersController:KnitStart()
 		local RarityTL = CharacterName:WaitForChild("Rarity")
 		local LevelTL = CharacterName:FindFirstChild("Level", true)
 
-		NameTL.Text = self.SoccerCharacters[Name].Name
+		NameTL.Text = self.SoccerCharacters[Name].DisplayName or self.SoccerCharacters[Name].Name
 
 		RarityTL.Text = self.SoccerCharacters[Name].Rarity
 		RarityTL.TextColor3 = self.Colors[RarityTL.Text]

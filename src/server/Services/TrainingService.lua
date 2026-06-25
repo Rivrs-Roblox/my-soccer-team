@@ -32,6 +32,7 @@ local TrainingService = Knit.CreateService({
 		TrainingRestingStateChanged = Knit.CreateSignal(),
 		TrainingLevelChanged = Knit.CreateSignal(),
 		TrainingTempStaminaChanged = Knit.CreateSignal(),
+		TrainingDrainingStateChanged = Knit.CreateSignal(),
 	},
 })
 
@@ -337,50 +338,82 @@ function TrainingService:StartTraining(
 	self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, maxStamina)
 
 	session.Thread = task.spawn(function()
+		local tickCounter = 0
 		while activeTrainings[player] == session do
-			task.wait(TICK_INTERVAL)
+			task.wait(0.5)
+			tickCounter += 0.5
 
 			local ok, err = pcall(function()
 				local currentStats = PlayerStatsService:GetStats(player)
 				local currentMaxStamina = currentStats.Stamina or 100
+				local cost = PlayerStatsService:GetStaminaCostPerTick(player, areaId, normalizedStatType, session.Level) or 0
 				
-				-- Update MaxStamina, but only scale TempStamina if resting
-				if session.IsResting then
-					if session.MaxStamina and session.MaxStamina > 0 and session.MaxStamina ~= currentMaxStamina then
-						local ratio = session.TempStamina / session.MaxStamina
-						session.TempStamina = ratio * currentMaxStamina
-					end
+				local isDraining = (normalizedStatType == "Stamina" and currentMaxStamina < cost)
+
+				if isDraining ~= session.IsDraining then
+					session.IsDraining = isDraining
+					local timeUntilZero = isDraining and (session.TempStamina / (currentMaxStamina * 0.2)) or 0
+					self.Client.TrainingDrainingStateChanged:FireAll(player, isDraining, timeUntilZero)
 				end
-				session.MaxStamina = currentMaxStamina
 
-				if session.IsResting then
-					-- Regenerate 15% of max stamina
-					local regenAmount = currentMaxStamina * 0.15
-					session.TempStamina += regenAmount
-
-					if session.TempStamina >= currentMaxStamina then
-						session.TempStamina = currentMaxStamina
-						session.IsResting = false
-						SendTrainingRestingStateChanged(self, player, false)
-					end
+				if isDraining then
+					-- Drain 10% of maxStamina every 0.5s
+					local drainAmount = currentMaxStamina * 0.1
+					session.TempStamina = math.max(0, session.TempStamina - drainAmount)
 					self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, currentMaxStamina)
-				else
-					local cost = PlayerStatsService:GetStaminaCostPerTick(player, areaId, normalizedStatType, session.Level) or 0
-					if session.TempStamina >= cost then
-						session.TempStamina -= cost
-						PlayerStatsService:AddStat(player, normalizedStatType, areaId, session.Level)
-						self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, currentMaxStamina)
-					else
-						session.IsResting = true
-						SendTrainingRestingStateChanged(self, player, true)
+
+					if session.TempStamina <= 0 then
+						self:StopTraining(player, "NotEnoughStamina")
+						SendTrainingFeedback(self, player, "NotEnoughStamina", "Not enough stamina for this level!")
+						return
 					end
-				end
-				
-				-- Update tracking
-				if playerStaminaTracking[player] then
-					playerStaminaTracking[player].Value = session.TempStamina
-					playerStaminaTracking[player].Max = session.MaxStamina
-					playerStaminaTracking[player].LastUpdate = os.time()
+				else
+					if tickCounter >= TICK_INTERVAL then
+						tickCounter = 0
+						-- Normal 1s tick logic
+						if session.IsResting then
+							if session.MaxStamina and session.MaxStamina > 0 and session.MaxStamina ~= currentMaxStamina then
+								local ratio = session.TempStamina / session.MaxStamina
+								session.TempStamina = ratio * currentMaxStamina
+							end
+						end
+						session.MaxStamina = currentMaxStamina
+
+						if session.IsResting then
+							-- Regenerate 15% of max stamina
+							local regenAmount = currentMaxStamina * 0.15
+							session.TempStamina += regenAmount
+
+							if session.TempStamina >= currentMaxStamina then
+								session.TempStamina = currentMaxStamina
+								session.IsResting = false
+								SendTrainingRestingStateChanged(self, player, false)
+							end
+							self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, currentMaxStamina)
+						else
+							if normalizedStatType == "Stamina" or session.TempStamina >= cost then
+								if normalizedStatType ~= "Stamina" then
+									session.TempStamina -= cost
+								else
+									session.TempStamina = math.min(currentMaxStamina, session.TempStamina + (currentMaxStamina * 0.15))
+								end
+								PlayerStatsService:AddStat(player, normalizedStatType, areaId, session.Level)
+								self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, currentMaxStamina)
+							else
+								session.TempStamina = 0
+								session.IsResting = true
+								SendTrainingRestingStateChanged(self, player, true)
+								self.Client.TrainingTempStaminaChanged:Fire(player, session.TempStamina, currentMaxStamina)
+							end
+						end
+						
+						-- Update tracking
+						if playerStaminaTracking[player] then
+							playerStaminaTracking[player].Value = session.TempStamina
+							playerStaminaTracking[player].Max = session.MaxStamina
+							playerStaminaTracking[player].LastUpdate = os.time()
+						end
+					end
 				end
 			end)
 
@@ -401,7 +434,7 @@ function TrainingService:StopTraining(player: Player, reason: string?)
 
 	activeTrainings[player] = nil
 
-	if data.Thread then
+	if data.Thread and data.Thread ~= coroutine.running() then
 		task.cancel(data.Thread)
 	end
 
@@ -477,7 +510,7 @@ function TrainingService:SetTrainingLevel(player: Player, level: number)
 			local currentStats = PlayerStatsService:GetStats(player)
 			local maxStamina = currentStats.Stamina or 100
 
-			if maxStamina < cost then
+			if maxStamina < cost and session.StatType ~= "Stamina" then
 				return false, "Not enough stamina for this level!"
 			end
 

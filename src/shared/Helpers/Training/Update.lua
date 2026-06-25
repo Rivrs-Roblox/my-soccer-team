@@ -4,7 +4,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Settings = require(script.Parent.Settings)
 local TrainingRuntimeRegistry = require(script.Parent.TrainingRuntimeRegistry)
-local TrainingConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Data"):WaitForChild("TrainingConfig"))
+local TrainingConfig =
+	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Data"):WaitForChild("TrainingConfig"))
 
 local DEFAULT_ANIMS = TrainingConfig.Animations
 
@@ -258,6 +259,7 @@ local function EnsureAnimations(lastInfo, animator, model)
 	lastInfo.Animations.Run = SafeLoadAnimation(animator, DEFAULT_ANIMS.DefaultRun, "Run", modelName)
 	lastInfo.Animations.Jump = SafeLoadAnimation(animator, DEFAULT_ANIMS.DefaultJump, "Jump", modelName)
 	lastInfo.Animations.Fall = SafeLoadAnimation(animator, DEFAULT_ANIMS.DefaultFall, "Fall", modelName)
+	lastInfo.Animations.Tired = SafeLoadAnimation(animator, DEFAULT_ANIMS.DefaultTired, "Tired", modelName)
 
 	local animationsFolder = model:WaitForChild("Animations")
 	local shootTrainingObject = animationsFolder:FindFirstChild("Shoot - Training", true)
@@ -279,18 +281,21 @@ local function EnsureAnimations(lastInfo, animator, model)
 
 	local dribbleTrainingObject = animationsFolder:FindFirstChild("Dribble - Training", true)
 	if dribbleTrainingObject and dribbleTrainingObject:IsA("Animation") and dribbleTrainingObject.AnimationId ~= "" then
-		lastInfo.Animations.Dribble = SafeLoadAnimation(animator, dribbleTrainingObject.AnimationId, "CustomTrainingDribble", modelName)
+		lastInfo.Animations.Dribble =
+			SafeLoadAnimation(animator, dribbleTrainingObject.AnimationId, "CustomTrainingDribble", modelName)
 	end
 
 	if not lastInfo.Animations.Dribble then
 		local dribbleObject = animationsFolder:FindFirstChild("Dribble", true)
 		if dribbleObject and dribbleObject:IsA("Animation") and dribbleObject.AnimationId ~= "" then
-			lastInfo.Animations.Dribble = SafeLoadAnimation(animator, dribbleObject.AnimationId, "CustomDribble", modelName)
+			lastInfo.Animations.Dribble =
+				SafeLoadAnimation(animator, dribbleObject.AnimationId, "CustomDribble", modelName)
 		end
 	end
 
 	if not lastInfo.Animations.Dribble then
-		lastInfo.Animations.Dribble = SafeLoadAnimation(animator, DEFAULT_ANIMS.DefaultDribble, "DefaultDribble", modelName)
+		lastInfo.Animations.Dribble =
+			SafeLoadAnimation(animator, DEFAULT_ANIMS.DefaultDribble, "DefaultDribble", modelName)
 	end
 end
 
@@ -323,7 +328,6 @@ local function PlayExpectedAnimation(lastInfo, expectedAnim, model, speedMultipl
 		lastInfo.CurrentAnimation = expectedAnim
 		lastInfo.ActiveTrainingAnimation = expectedAnim
 		lastInfo.ActiveTrainingAnimationTrack = track
-
 	else
 		lastInfo.ActiveTrainingAnimation = nil
 		lastInfo.ActiveTrainingAnimationTrack = nil
@@ -580,13 +584,21 @@ local function UpdateSoccerCharacters(
 							warn("[TrainingUpdate] Expected Shoot animation but track is missing for", grid.Model.Name)
 						end
 					elseif trainingState.ExpectedAnimation == "Dribble" then
-						if lastInfo.Animations.Dribble then
-							expectedAnim = "Dribble"
+						if info.Arrived == false then
+							if lastInfo.Animations.Dribble then
+								expectedAnim = "Dribble"
+							else
+								expectedAnim = "Run"
+							end
 						else
-							expectedAnim = "Run"
+							expectedAnim = "Idle"
 						end
 					elseif trainingState.ExpectedAnimation == "Run" then
-						expectedAnim = "Run"
+						if info.Arrived == false or trainingState.Mode == "StaminaTraining" then
+							expectedAnim = "Run"
+						else
+							expectedAnim = "Idle"
+						end
 					elseif trainingState.ExpectedAnimation == "Idle" then
 						expectedAnim = "Idle"
 					end
@@ -601,12 +613,10 @@ local function UpdateSoccerCharacters(
 			end
 
 			if ownerVisualState and ownerVisualState.IsResting and info.Arrived then
-				if expectedAnim ~= "Shoot" then
-					if trainingState and trainingState.Mode == "StaminaTraining" then
-						expectedAnim = "Walk"
-					else
-						expectedAnim = "Idle"
-					end
+				if lastInfo.Animations.Tired then
+					expectedAnim = "Tired"
+				else
+					expectedAnim = "Idle"
 				end
 			end
 
@@ -614,7 +624,11 @@ local function UpdateSoccerCharacters(
 				PlayExpectedAnimation(lastInfo, expectedAnim, grid.Model, speedMultiplier)
 			end
 
-			SetEmbeddedBallVisible(lastInfo, grid.Model, ShouldShowEmbeddedTrainingBall(ownerVisualState, trainingState))
+			SetEmbeddedBallVisible(
+				lastInfo,
+				grid.Model,
+				ShouldShowEmbeddedTrainingBall(ownerVisualState, trainingState)
+			)
 
 			local animationTime = grid.TimeElapsed or 0
 			local animationInfo = GetAnimationOffset(animationTime)
@@ -638,7 +652,8 @@ local function UpdateSoccerCharacters(
 						lastInfo.AnimationHeight or 0,
 						0
 					)).Magnitude
-					local animationSpeed = math.clamp((100 / math.max(animationHeightDistance, 0.001)) * playerDelta, 0, 1)
+					local animationSpeed =
+						math.clamp((100 / math.max(animationHeightDistance, 0.001)) * playerDelta, 0, 1)
 					animationPositionLerp = (lastInfo.AnimationPosition or CFrame.new()):Lerp(
 						CFrame.new(0, animationInfo.Height, 0),
 						animationSpeed
@@ -718,13 +733,25 @@ local function UpdateSoccerCharacters(
 				local moveSpeed = GetCompanionMoveSpeed(player, soccerCharacterInfo.Speed or 16, trainingState)
 				local positionDistance = (flatTarget.Position - lastInfo.Position.Position).Magnitude
 
-				if trainingState and trainingState.PhaseName == "NodeRun" and trainingState.PreviousTargetPart and trainingState.TargetPart and trainingState.PhaseProgress then
-					local previousPosition = Vector3.new(trainingState.PreviousTargetPart.Position.X, 0, trainingState.PreviousTargetPart.Position.Z)
-					local nextPosition = Vector3.new(trainingState.TargetPart.Position.X, 0, trainingState.TargetPart.Position.Z)
+				if
+					trainingState
+					and trainingState.PhaseName == "NodeRun"
+					and trainingState.PreviousTargetPart
+					and trainingState.TargetPart
+					and trainingState.PhaseProgress
+				then
+					local previousPosition = Vector3.new(
+						trainingState.PreviousTargetPart.Position.X,
+						0,
+						trainingState.PreviousTargetPart.Position.Z
+					)
+					local nextPosition =
+						Vector3.new(trainingState.TargetPart.Position.X, 0, trainingState.TargetPart.Position.Z)
 					local exactPosition = previousPosition:Lerp(nextPosition, trainingState.PhaseProgress)
 					positionLerp = CFrame.new(exactPosition)
 				else
-					local positionSpeed = math.clamp((moveSpeed / math.max(positionDistance, 0.001)) * playerDelta, 0, 1)
+					local positionSpeed =
+						math.clamp((moveSpeed / math.max(positionDistance, 0.001)) * playerDelta, 0, 1)
 					positionLerp = lastInfo.Position:Lerp(flatTarget, positionSpeed)
 				end
 

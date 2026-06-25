@@ -94,7 +94,6 @@ function MatchBallCarrierMarkerController:_createGui()
 
 	local playerGui = getPlayerGui()
 	if not playerGui then
-		warn("[MatchBallCarrierMarker] PlayerGui not ready; marker skipped.")
 		return
 	end
 
@@ -347,7 +346,7 @@ end
 
 function MatchBallCarrierMarkerController:_handleSessionStarted(payload)
 	self._activeSessionId = payload and payload.SessionId or nil
-	self:Hide("SessionStarted")
+	self:ShowForSlot(1, "SessionStarted")
 end
 
 function MatchBallCarrierMarkerController:_handleStepStarted(stepPayload)
@@ -376,7 +375,7 @@ function MatchBallCarrierMarkerController:_handleStepResolved(resultPayload)
 	end
 
 	if resultPayload.Succeeded ~= true then
-		self:Hide("StepFailed")
+		-- Keep arrow active on step failure
 		return
 	end
 
@@ -400,14 +399,7 @@ function MatchBallCarrierMarkerController:_handleStepResolved(resultPayload)
 	end
 
 	if isShootAction(actionName) then
-		task.delay(0.20, function()
-			if self._activeSessionId ~= nil and resultPayload.SessionId ~= nil then
-				if tostring(resultPayload.SessionId) ~= tostring(self._activeSessionId) then
-					return
-				end
-			end
-			self:Hide("ShootResolved")
-		end)
+		-- Keep arrow active on shoot
 		return
 	end
 

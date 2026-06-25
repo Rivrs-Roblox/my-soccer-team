@@ -33,6 +33,7 @@ local AuthorizedUsers = {
 	7823986403,
 	1621760624,
 	8499329506,
+	9243225098,
 }
 
 -- TeleportService

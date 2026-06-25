@@ -91,6 +91,11 @@ function Gacha.Open(items, type, category)
 	UIController:RemoveHUD({ ignoreTopFrame = false })
 	UIController:JustHideFrame()
 
+	local trainingOptionsGui = playerGui:FindFirstChild("TrainingOptionsGui")
+	if trainingOptionsGui then
+		trainingOptionsGui.Enabled = false
+	end
+
 	local PackModel
 	local RewardsFolder
 	local RenderStepName = "CardPackRender" .. os.clock()
@@ -876,6 +881,17 @@ function Gacha.Open(items, type, category)
 
 	skipGachaGui.Enabled = false
 	accessoriesGui.Enabled = false
+
+	local TrainingController
+	pcall(function()
+		TrainingController = Knit.GetController("TrainingController")
+	end)
+	if TrainingController and TrainingController.CurrentStatType then
+		local trainingOptionsGui = playerGui:FindFirstChild("TrainingOptionsGui")
+		if trainingOptionsGui then
+			trainingOptionsGui.Enabled = true
+		end
+	end
 
 	UIController:ShowHUD()
 	UserInputService.MouseIconEnabled = true

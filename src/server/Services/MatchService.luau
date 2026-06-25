@@ -32,6 +32,15 @@ local pendingTournamentSources = {}
 local tournamentContinuationReturnCFrames = {}
 local tournamentContinuationReturnSources = {}
 local activeChampionCeremonies = {}
+-- Token per player to guard leg-continuation task.delay callbacks.
+-- Cleared on defeat/exit so a stale delayed callback cannot restart the match.
+local legContinuationTokens = {}
+-- A QTE defeat is terminal regardless of the current aggregate score. The next
+-- match may only start after the player explicitly confirms a fresh preview.
+local defeatRestartLocks = {}
+-- Auto battle gates are edge-triggered after defeat: the player must leave the
+-- trigger before it can open another preview.
+local defeatGateRearmRequired = {}
 local nextZoneVariationIndex = 1
 
 local AUTO_BATTLE_TOUCH_DEBOUNCE = 0.85
@@ -130,6 +139,31 @@ local function CloneEnemySteps(areaId, roundId)
 		}
 	end
 	return result
+end
+
+local function ResolveEnemyStageName(roundId, roundIndex)
+	local normalizedRoundId = tostring(roundId or "")
+	if normalizedRoundId == "RoundOf16" then
+		return "Stage1"
+	elseif normalizedRoundId == "QuarterFinal" then
+		return "Stage2"
+	elseif normalizedRoundId == "SemiFinal" then
+		return "Stage3"
+	elseif normalizedRoundId == "Final" then
+		return "Stage4"
+	end
+
+	local numericRoundIndex = tonumber(roundIndex)
+	if numericRoundIndex then
+		return string.format("Stage%d", math.clamp(numericRoundIndex, 1, 4))
+	end
+
+	return "Stage1"
+end
+
+local function SelectEnemyTeamFolderName(seed)
+	local rng = Random.new(tonumber(seed) or 0)
+	return string.format("Team%02d", rng:NextInteger(1, 15))
 end
 
 local function BuildDefaultIntroData()
@@ -633,6 +667,10 @@ local AUTO_RETURN_RETRY_DELAY = 0.20
 local AUTO_RETURN_DISTANCE_TOLERANCE = 3.25
 
 local FAILED_STEP_FINISH_DELAY = 0.75
+-- How long after defeatRestartLocks is SET do we wait before teleporting.
+-- Safe to be long because the lock is stamped BEFORE this delay fires,
+-- so _tryStartMatch cannot re-enter during the hold window.
+local DEFEAT_UI_HOLD_DELAY = 3.2
 local PRE_QTE_APPROACH_DURATION = 1.20
 local PRE_QTE_PAUSE = 1.25
 
@@ -843,6 +881,13 @@ function MatchService:BuildSessionPayload(player)
 	end
 
 	local roundId = tournamentContext and tournamentContext.RoundId or "RoundOf16"
+	local roundIndex = tournamentContext and tournamentContext.RoundIndex or nil
+	local enemyStageName = ResolveEnemyStageName(roundId, roundIndex)
+	-- Bug fix: use a round-stable seed so the enemy team stays the same for the
+	-- entire round (all legs). Only changes when RoundIndex advances.
+	-- Previously used the time-based `seed` which caused enemy re-gacha every leg.
+	local roundStableSeed = player.UserId + ((tonumber(roundIndex) or 1) * 31337)
+	local enemyTeamFolderName = SelectEnemyTeamFolderName(roundStableSeed)
 
 	local roster = MatchRosterBuilder.Build(player, playerData, SoccerCharactersTemplate)
 	local sequence = MatchSequenceBuilder.Build(seed, roster)
@@ -852,6 +897,8 @@ function MatchService:BuildSessionPayload(player)
 		AreaId = areaId,
 		Seed = seed,
 		EnemySteps = CloneEnemySteps(areaId, roundId),
+		EnemyStageName = enemyStageName,
+		EnemyTeamFolderName = enemyTeamFolderName,
 		Stats = GetPlayerStats(playerData),
 		Roster = roster,
 		Sequence = sequence,
@@ -1150,16 +1197,32 @@ function MatchService:_completeVictoryForLegContinuation(player, session)
 	end
 	tournamentContinuationReturnSources[player] = session.ReturnTargetSource
 
-	touchDebounces[player] = nil
+	-- Race-condition fix: stamp debounce (NOT nil) so the auto-battle-zone scanner
+	-- cannot trigger _requestTournamentPreview in the ~0.50s window between leg N
+	-- ending (activeSessions=nil) and leg N+1 starting programmatically.
+	touchDebounces[player] = os.clock()
 	player:SetAttribute("IsInMatch", false)
 	activeSessions[player] = nil
 	pendingTransitions[player] = nil
+
+	-- Generate a unique token for this leg transition.
+	-- The task.delay callback checks this token before starting the next match.
+	-- If the player loses and _completeSessionNow runs first, it clears the token
+	-- so this delayed callback becomes a no-op.
+	local continuationToken = (legContinuationTokens[player] or 0) + 1
+	legContinuationTokens[player] = continuationToken
 
 	-- Signal client that this is a leg continuation (no bracket preview)
 	self.Client.MatchSessionEnded:Fire(player, "LegContinuation", session.SessionId)
 
 	-- Auto-start the next leg after a short delay
 	task.delay(0.50, function()
+		-- Token check: if cleared by defeat/exit, do NOT start the next match.
+		if legContinuationTokens[player] ~= continuationToken then
+			return
+		end
+		legContinuationTokens[player] = nil
+
 		if activeSessions[player] or pendingTransitions[player] then
 			return
 		end
@@ -1415,10 +1478,16 @@ function MatchService:_completeSessionNow(player, reason)
 	if returned then
 		RestoreCharacterServerState(player, { StopAnimations = true })
 		self:_fireReturnAttendance(player, session, true, reason or "ManualExit")
-		touchDebounces[player] = nil
+		-- Invalidate any pending leg-continuation so its task.delay becomes a no-op.
+		legContinuationTokens[player] = nil
+		-- Stamp debounce so scanner cannot re-trigger match immediately.
+		touchDebounces[player] = os.clock()
 		player:SetAttribute("IsInMatch", false)
 		activeSessions[player] = nil
 		pendingTransitions[player] = nil
+		if reason == "Defeat" then
+			defeatGateRearmRequired[player] = os.clock()
+		end
 		self.Client.MatchSessionEnded:Fire(player, reason or "ManualExit", session.SessionId)
 		return
 	end
@@ -1444,10 +1513,16 @@ function MatchService:_completeSessionNow(player, reason)
 	warn("[MatchService] Auto return exhausted retries, forcing session end:", player.Name)
 	RestoreCharacterServerState(player, { StopAnimations = true })
 	self:_fireReturnAttendance(player, session, false, reason or "ManualExit")
-	touchDebounces[player] = nil
+	-- Invalidate any pending leg-continuation so its task.delay becomes a no-op.
+	legContinuationTokens[player] = nil
+	-- Bug 2B fix: same debounce stamp to block gate re-trigger on forced return.
+	touchDebounces[player] = os.clock()
 	player:SetAttribute("IsInMatch", false)
 	activeSessions[player] = nil
 	pendingTransitions[player] = nil
+	if reason == "Defeat" then
+		defeatGateRearmRequired[player] = os.clock()
+	end
 	self.Client.MatchSessionEnded:Fire(player, reason or "ManualExit", session.SessionId)
 end
 
@@ -1461,6 +1536,23 @@ function MatchService:_finishMatch(player, reason)
 	self:_cancelSessionQte(session)
 
 	if reason ~= "Victory" then
+		-- Defeat/exit is terminal for the current tournament attempt. Invalidate a
+		-- queued leg continuation immediately, before result UI and return teleport
+		-- delays, so no stale callback can start another match in that window.
+		legContinuationTokens[player] = nil
+		tournamentContinuationReturnCFrames[player] = nil
+		tournamentContinuationReturnSources[player] = nil
+	end
+
+	if reason == "Defeat" then
+		defeatRestartLocks[player] = true
+		pendingTournamentSources[player] = nil
+		if TournamentService and TournamentService.SetPendingStart then
+			TournamentService:SetPendingStart(player, false)
+		end
+	end
+
+	if reason ~= "Victory" then
 		SendFeedback(self, player, "ERROR", "Possession lost.")
 	end
 
@@ -1470,7 +1562,10 @@ function MatchService:_finishMatch(player, reason)
 		local initHomeScore = introData and tonumber(introData.HomeScore) or 0
 		local initAwayScore = introData and tonumber(introData.AwayScore) or 0
 		local playerGoals = initHomeScore + (session.MatchGoals or 0)
-		local opponentGoals = if reason == "Victory" then initAwayScore else (initAwayScore + 1)
+		-- Bug fix: do NOT add +1 to opponentGoals on Defeat.
+		-- initAwayScore already contains the aggregate opponent score (e.g. 3 for RoundOf16).
+		-- Adding 1 produced an incorrect score of 4 in the bracket.
+		local opponentGoals = initAwayScore
 		local ok, result = pcall(function()
 			return TournamentService:ApplyMatchResult(player, reason == "Victory", playerGoals, opponentGoals)
 		end)
@@ -1482,8 +1577,11 @@ function MatchService:_finishMatch(player, reason)
 		end
 	end
 
-	-- Multi-leg: check if this was a leg win (round not yet complete)
-	local isLegWin = type(tournamentPayload) == "table" and tournamentPayload.LegResult == "LegWin"
+	-- Multi-leg: check if this was a leg win (round not yet complete).
+	-- Bug fix: isLegWin hanya valid jika reason == "Victory". Jika player kalah
+	-- setelah ngegolin, TournamentService bisa return LegResult="LegWin" berdasarkan
+	-- skor, tapi kita TIDAK boleh auto-restart match — player harus balik lobby dulu.
+	local isLegWin = reason == "Victory" and type(tournamentPayload) == "table" and tournamentPayload.LegResult == "LegWin"
 
 	if reason == "Victory" and not isLegWin then
 		SendFeedback(self, player, "SUCCESS", "Goal! Match won.")
@@ -1519,7 +1617,13 @@ function MatchService:_finishMatch(player, reason)
 		)
 	end
 
-	task.delay(MatchConstants.MATCH_FINISH_DELAY, function()
+	-- For Defeat: give client time to display the lose popup.
+	-- defeatRestartLocks is ALREADY set above, so extending this delay
+	-- does NOT open a race-condition window for gate re-triggers.
+	local finishTransitionDelay = (reason == "Defeat")
+		and (MatchConstants.MATCH_FINISH_DELAY + DEFEAT_UI_HOLD_DELAY)
+		or MatchConstants.MATCH_FINISH_DELAY
+	task.delay(finishTransitionDelay, function()
 		local liveSession = activeSessions[player]
 		if liveSession ~= session then
 			return
@@ -1990,6 +2094,8 @@ function MatchService:RegisterBattleZonePrompts()
 end
 
 function MatchService:_scanAutoBattleTouchPartsOnce()
+	local touchingPlayers = {}
+
 	for part in pairs(registeredTouchParts) do
 		if not part or not part.Parent then
 			registeredTouchParts[part] = nil
@@ -2006,9 +2112,22 @@ function MatchService:_scanAutoBattleTouchPartsOnce()
 				local player = GetPlayerFromTouchedPart(hit)
 				if player and not seenPlayers[player] then
 					seenPlayers[player] = true
+					touchingPlayers[player] = true
 					self:HandleBattleGateTouched(player, part)
 				end
 			end
+		end
+	end
+
+	for player, rearmStartedAt in pairs(defeatGateRearmRequired) do
+		local hasObservedPostReturnScan = os.clock() - (tonumber(rearmStartedAt) or 0) >= AUTO_BATTLE_ZONE_SCAN_INTERVAL
+		if
+			hasObservedPostReturnScan
+			and not touchingPlayers[player]
+			and not activeSessions[player]
+			and not pendingTransitions[player]
+		then
+			defeatGateRearmRequired[player] = nil
 		end
 	end
 end
@@ -2131,6 +2250,7 @@ function MatchService:StartConfirmedTournamentMatch(player)
 	return self:_tryStartMatch(player, source, {
 		SilentBusy = false,
 		FromTournament = true,
+		ExplicitPlayerStart = true,
 		ReturnCFrameOverride = returnCFrameOverride,
 		ReturnTargetSourceOverride = returnTargetSourceOverride,
 	})
@@ -2138,6 +2258,11 @@ end
 
 function MatchService:_tryStartMatch(player, source, options)
 	local silentBusy = options and options.SilentBusy == true
+	local isExplicitPlayerStart = options and options.ExplicitPlayerStart == true
+
+	if defeatRestartLocks[player] and not isExplicitPlayerStart then
+		return false
+	end
 
 	if self:IsPlayerInMatch(player) then
 		if not silentBusy then
@@ -2195,6 +2320,11 @@ function MatchService:_tryStartMatch(player, source, options)
 		ReturnTargetSource = returnSource,
 	}
 
+	if isExplicitPlayerStart then
+		defeatRestartLocks[player] = nil
+		defeatGateRearmRequired[player] = nil
+	end
+
 	self.Client.MatchTransitionRequested:Fire(
 		player,
 		"Enter",
@@ -2217,6 +2347,10 @@ end
 
 function MatchService:HandleBattleGateTouched(player, touchPart)
 	if not player then
+		return false
+	end
+
+	if defeatGateRearmRequired[player] then
 		return false
 	end
 
@@ -2454,6 +2588,9 @@ function MatchService:KnitStart()
 		tournamentContinuationReturnCFrames[player] = nil
 		tournamentContinuationReturnSources[player] = nil
 		activeChampionCeremonies[player] = nil
+		legContinuationTokens[player] = nil
+		defeatRestartLocks[player] = nil
+		defeatGateRearmRequired[player] = nil
 	end)
 end
 

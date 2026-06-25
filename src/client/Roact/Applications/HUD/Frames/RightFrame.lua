@@ -149,7 +149,7 @@ function RightFrame(_, hooks)
 				Position = UDim2.fromScale(0.5, 0.5),
 				BackgroundColor3 = Color3.fromHex("ffffff"),
 				ZIndex = 2,
-				Image = "rbxassetid://120721734256008",
+				Image = "rbxassetid://110518086056999",
 				Size = UDim2.fromScale(1, 1),
 			}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
 			LimitedText = Roact.createElement("TextLabel", {

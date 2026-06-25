@@ -124,7 +124,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Messy",
+						Text = "Messi",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -191,7 +191,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Ronaldinyo",
+						Text = "Ronaldinho",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -250,7 +250,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Lewandosky",
+						Text = "Lewandowski",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -302,7 +302,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Hery Ken",
+						Text = "Harry Kane",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -355,7 +355,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Mbape",
+						Text = "Mbappe",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -689,7 +689,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Ronalde",
+						Text = "Ronaldo",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -756,7 +756,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Bekam",
+						Text = "Beckham",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -815,7 +815,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Haland",
+						Text = "Haaland",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -867,7 +867,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Dembala",
+						Text = "Dembele",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,
@@ -920,7 +920,7 @@ local function Featured(_, hooks)
 					NameText = Roact.createElement("TextLabel", {
 						TextWrapped = true,
 						TextColor3 = Color3.fromHex("ffffff"),
-						Text = "Naymar",
+						Text = "Neymar Jr",
 						AnchorPoint = Vector2.new(0.5, 1),
 						FontFace = Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold),
 						BackgroundTransparency = 1,

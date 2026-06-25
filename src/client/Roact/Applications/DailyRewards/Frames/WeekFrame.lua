@@ -41,6 +41,7 @@ local GradColors = {
 local Frames = script.Parent
 local RewardCard = require(Frames.RewardCard)
 local Day1to6Frame = require(Frames.Day1to6Frame)
+local SoccerCharacters = require(ReplicatedStorage.Shared.Data.Template.SoccerCharacters)
 
 local DataCacheController = Knit.GetController("DataCacheController")
 local Template = DataCacheController:GetFile("Template")
@@ -53,6 +54,12 @@ return function(order, props, hooks)
 
     for _, item in ipairs(props) do
         local weekDay = ((item.day - 1) % 7) + 1
+        
+        local displayName = item.reward.Name
+        if item.reward.Reward == "Character" and SoccerCharacters[item.reward.Character] then
+            displayName = SoccerCharacters[item.reward.Character].DisplayName or item.reward.Name
+        end
+
         local card = RewardCard({
             id = item.day,
             weekDay = weekDay,
@@ -60,7 +67,7 @@ return function(order, props, hooks)
             claimed = item.reward.Claimed,
             currency = item.reward.Currency,
             image = item.reward.Image,
-            name = item.reward.Name,
+            name = displayName,
             reward = item.reward.Reward,
             size = weekDay == 7 and UDim2.fromScale(0.28, 1) or UDim2.fromScale(0.28, 0.9),
             exclusive = weekDay == 7,

@@ -67,7 +67,10 @@ function RebirthService:Rebirth(player: Player)
 	end
 
 	if data.Stats.Shoot < req.A or data.Stats.Pass < req.B or data.Stats.Dribble < req.C then
-		return { text = self.Template.Messages.Notifications.Not_Enough_Money("Shoot, Pass, and Dribble stats"), type = "ERROR" }
+		return {
+			text = self.Template.Messages.Notifications.Not_Enough_Money("Shoot, Pass, and Dribble stats"),
+			type = "ERROR",
+		}
 	end
 
 	local value = DataService:ChangeValueRebirth(player)
@@ -75,6 +78,7 @@ function RebirthService:Rebirth(player: Player)
 	PlayerStatsService:SetStat(player, "Shoot", 0)
 	PlayerStatsService:SetStat(player, "Pass", 0)
 	PlayerStatsService:SetStat(player, "Dribble", 0)
+	PlayerStatsService:SetStat(player, "Stamina", 100)
 
 	return {
 		text = self.Template.Messages.Notifications.Rebirth_Successfull(data.Rebirth),
@@ -102,13 +106,18 @@ function RebirthService:RebirthWithoutMoney(player: Player)
 	end
 
 	if data.Stats.Shoot < req.A or data.Stats.Pass < req.B or data.Stats.Dribble < req.C then
-		return { text = self.Template.Messages.Notifications.Not_Enough_Money("Shoot, Pass, and Dribble stats"), type = "ERROR" }
+		return {
+			text = self.Template.Messages.Notifications.Not_Enough_Money("Shoot, Pass, and Dribble stats"),
+			type = "ERROR",
+		}
 	end
 
 	local value = DataService:ChangeValueRebirth(player)
 	PlayerStatsService:SetStat(player, "Shoot", 0)
 	PlayerStatsService:SetStat(player, "Pass", 0)
 	PlayerStatsService:SetStat(player, "Dribble", 0)
+	PlayerStatsService:SetStat(player, "Stamina", 100)
+
 	return {
 		text = self.Template.Messages.Notifications.Rebirth_Successfull(data.Rebirth),
 		type = "SUCCESS",

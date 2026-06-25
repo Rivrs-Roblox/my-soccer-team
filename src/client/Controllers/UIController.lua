@@ -540,22 +540,35 @@ function UIController:TweenTopDisplaySize(currency)
 	-- Clear the tweens table
 	table.clear(self.ActiveTweens.displaySizeTweens)
 
-	local TopFrame = Players.LocalPlayer.PlayerGui:WaitForChild("GameScreenGui").HUD.TopFrame
-	
+	local FrameToTween = nil
+	local sizeOffset = UDim2.fromScale(0.15, 0.15)
+	local isStamina = currency == "Stamina"
+
 	local frameName = currency
-	if currency == "Shoot" then
-		frameName = "Shooting"
-	elseif currency == "Pass" then
-		frameName = "Passing"
-	elseif currency == "Dribble" then
-		frameName = "Dribbling"
-	elseif currency == "Rebirth" then
-		frameName = "Rebirths"
+	if isStamina then
+		local trainingOptionsGui = Players.LocalPlayer.PlayerGui:FindFirstChild("TrainingOptionsGui")
+		if trainingOptionsGui then
+			FrameToTween = trainingOptionsGui:FindFirstChild("StaminaBar", true)
+			sizeOffset = UDim2.fromScale(0.04, 0.08)
+		end
+	else
+		local TopFrame = Players.LocalPlayer.PlayerGui:WaitForChild("GameScreenGui").HUD.TopFrame
+		
+		if currency == "Shoot" then
+			frameName = "Shooting"
+		elseif currency == "Pass" then
+			frameName = "Passing"
+		elseif currency == "Dribble" then
+			frameName = "Dribbling"
+		elseif currency == "Rebirth" then
+			frameName = "Rebirths"
+		end
+
+		FrameToTween = TopFrame:FindFirstChild(frameName)
 	end
 
-	local FrameToTween = TopFrame:FindFirstChild(frameName)
 	if not FrameToTween then
-		warn("[UIController] Top HUD frame not found for currency:", currency, "resolved as:", frameName)
+		warn("[UIController] HUD frame not found for currency:", currency, "resolved as:", frameName)
 		return
 	end
 
@@ -566,7 +579,7 @@ function UIController:TweenTopDisplaySize(currency)
 	local TweenInf1 = TweenInfo.new(0.05, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 0, false, 0)
 
 	local TweenSizeUp =
-		TweenService:Create(FrameToTween, TweenInf1, { Size = originalSize + UDim2.fromScale(0.15, 0.15) })
+		TweenService:Create(FrameToTween, TweenInf1, { Size = originalSize + sizeOffset })
 
 	local TweenSizeDown = TweenService:Create(FrameToTween, TweenInf2, { Size = originalSize })
 

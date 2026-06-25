@@ -1,7 +1,7 @@
 return table.freeze({
 	[1] = {
 		Name = "Jos Morningho",
-		DisplayName = "Jos Morningho",
+		DisplayName = "Jose Mourinho",
 		Image = "rbxassetid://88850489092483",
 		Price = 290,
 		Multiplier = 1.8,
@@ -10,7 +10,7 @@ return table.freeze({
 	},
 	[2] = {
 		Name = "Saar Alex Ferguyon",
-		DisplayName = "Saar Alex Ferguyon",
+		DisplayName = "Sir Alex Ferguson",
 		Image = "rbxassetid://134928946986410",
 		Price = 490,
 		Multiplier = 3,
@@ -43,7 +43,7 @@ return table.freeze({
 	},
 	[6] = {
 		Name = "Rian Masonn",
-		DisplayName = "Rian Masonn",
+		DisplayName = "Ryan Mason",
 		Image = "rbxassetid://137411965171859",
 		Price = 25_000_000,
 		Multiplier = 1.25,
@@ -51,7 +51,7 @@ return table.freeze({
 	},
 	[7] = {
 		Name = "Gery Oneillo",
-		DisplayName = "Gery Oneillo",
+		DisplayName = "Gary O'Neil",
 		Image = "rbxassetid://129312806028918",
 		Price = 75_000_000,
 		Multiplier = 1.3,
@@ -59,7 +59,7 @@ return table.freeze({
 	},
 	[8] = {
 		Name = "Thomas Slebew",
-		DisplayName = "Thomas Slebew",
+		DisplayName = "Thomas Tuchel",
 		Image = "rbxassetid://90648993978954",
 		Price = 225_000_000,
 		Multiplier = 1.35,
@@ -67,7 +67,7 @@ return table.freeze({
 	},
 	[9] = {
 		Name = "Andani Iraolaa",
-		DisplayName = "Andani Iraolaa",
+		DisplayName = "Andoni Iraola",
 		Image = "rbxassetid://111027713873358",
 		Price = 675_000_000,
 		Multiplier = 1.4,
@@ -75,7 +75,7 @@ return table.freeze({
 	},
 	[10] = {
 		Name = "Pincent Kompani",
-		DisplayName = "Pincent Kompani",
+		DisplayName = "Vincent Kompany",
 		Image = "rbxassetid://134368809514032",
 		Price = 250_000_000_000,
 		Multiplier = 1.45,
@@ -83,7 +83,7 @@ return table.freeze({
 	},
 	[11] = {
 		Name = "Frankcesco Fariolii",
-		DisplayName = "Frankcesco Fariolii",
+		DisplayName = "Francesco Farioli",
 		Image = "rbxassetid://120143860131469",
 		Price = 750_000_000_000,
 		Multiplier = 1.5,
@@ -91,7 +91,7 @@ return table.freeze({
 	},
 	[12] = {
 		Name = "Roberto De Zerbee",
-		DisplayName = "Roberto De Zerbee",
+		DisplayName = "Roberto De Zerbi",
 		Image = "rbxassetid://138917051972473",
 		Price = 2_250_000_000_000,
 		Multiplier = 1.55,
@@ -107,7 +107,7 @@ return table.freeze({
 	},
 	[14] = {
 		Name = "Edan Terzicch",
-		DisplayName = "Edan Terzicch",
+		DisplayName = "Edin Terzic",
 		Image = "rbxassetid://99120051289963",
 		Price = 2_500_000_000_000_000,
 		Multiplier = 1.65,
@@ -115,7 +115,7 @@ return table.freeze({
 	},
 	[15] = {
 		Name = "Xabi Alanssa",
-		DisplayName = "Xabi Alanssa",
+		DisplayName = "Xabi Alonso",
 		Image = "rbxassetid://86057973996704",
 		Price = 7_500_000_000_000_000,
 		Multiplier = 1.7,
@@ -123,7 +123,7 @@ return table.freeze({
 	},
 	[16] = {
 		Name = "Theigo Mottaa",
-		DisplayName = "Theigo Mottaa",
+		DisplayName = "Thiago Motta",
 		Image = "rbxassetid://84914025481682",
 		Price = 22_500_000_000_000_000,
 		Multiplier = 1.75,
@@ -139,7 +139,7 @@ return table.freeze({
 	},
 	[18] = {
 		Name = "Pep Guardilo",
-		DisplayName = "Pep Guardilo",
+		DisplayName = "Pep Guardiola",
 		Image = "rbxassetid://82519889649557",
 		Price = 70_000_000_000_000_000,
 		Multiplier = 1.85,
@@ -147,7 +147,7 @@ return table.freeze({
 	},
 	[19] = {
 		Name = "Jorgen Kloop",
-		DisplayName = "Jorgen Kloop",
+		DisplayName = "Jurgen Klopp",
 		Image = "rbxassetid://107330955203052",
 		Price = 210_000_000_000_000_000,
 		Multiplier = 1.9,
@@ -155,7 +155,7 @@ return table.freeze({
 	},
 	[20] = {
 		Name = "Diego Maradono",
-		DisplayName = "Diego Maradono",
+		DisplayName = "Diego Maradona",
 		Price = 630_000_000_000_000_000,
 		Image = "rbxassetid://77705401419776",
 		Multiplier = 2,
