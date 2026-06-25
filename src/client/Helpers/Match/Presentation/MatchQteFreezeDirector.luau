@@ -34,11 +34,11 @@ return function(MatchPresentationController, Context)
 			-- Shoot cinematic owns the real Shoot animation after QTE click.
 			-- Pre-QTE must not sample/play Shoot because it causes a fast kick before slowmo.
 			SkipActionPose = true,
-			Animations = { "Idle" },
+			Animations = { "Run" },
 			PoseTime = 0,
 			FadeTime = 0.05,
 			BallOffset = MatchBallConfig.ShootOffset,
-			EnemyAnimation = "Idle",
+			EnemyAnimation = "Run",
 			EnemySpeed = 1.0,
 			CameraHook = "OnShootAnticipation",
 			KeeperReady = true,
@@ -47,25 +47,26 @@ return function(MatchPresentationController, Context)
 		Pass = {
 			-- Pass resolve owns the real kick. Pre-QTE should not show a slowmo kick first.
 			SkipActionPose = true,
-			Animations = { "Idle" },
+			Animations = { "Run" },
 			PoseTime = 0,
 			FadeTime = 0.05,
 			BallOffset = MatchBallConfig.PassOffset,
-			EnemyAnimation = "Idle",
+			EnemyAnimation = "Run",
 			EnemySpeed = 1.0,
 		},
 
 		Dribble = {
-			Animations = { "Dribble", "Run" },
-			PoseTime = 0.16,
+			SkipActionPose = true,
+			Animations = { "Run" },
+			PoseTime = 0,
 			FadeTime = 0.02,
-			BallOffset = MatchBallConfig.ReceiveOffset,
+			BallOffset = MatchBallConfig.DribbleOffset,
 			EnemyAnimation = "Run",
 			EnemySpeed = 1.0,
 		},
 
 		Default = {
-			Animations = { "Run", "Idle" },
+			Animations = { "Run" },
 			PoseTime = 0.12,
 			FadeTime = 0.02,
 			BallOffset = MatchBallConfig.ReceiveOffset,
@@ -145,7 +146,7 @@ return function(MatchPresentationController, Context)
 			local animationName = animation and animation.Name or ""
 
 			if SHOOT_ANIMATION_NAMES[animationName] then
-				track:Stop(0.03)
+				track:Stop(0)
 			end
 		end
 	end
@@ -164,8 +165,8 @@ return function(MatchPresentationController, Context)
 			local animation = track.Animation
 			local animationName = animation and animation.Name or ""
 
-			if ACTION_POSE_ANIMATION_NAMES[animationName] then
-				track:Stop(0.03)
+			if ACTION_POSE_ANIMATION_NAMES[animationName] or animationName == "Idle" or animationName == "idle" or animationName == "Animation1" then
+				track:Stop(0)
 			end
 		end
 	end
@@ -454,6 +455,10 @@ return function(MatchPresentationController, Context)
 		for model in pairs(self.FrozenRigModels) do
 			if model and model.Parent then
 				self:_resumeRigAnimation(model)
+				local animate = model:FindFirstChild("Animate")
+				if animate and animate:IsA("BaseScript") then
+					animate.Enabled = true
+				end
 			end
 		end
 
@@ -487,6 +492,22 @@ return function(MatchPresentationController, Context)
 		end)
 	end
 
+	local function debugPrintPlayingAnimations(model, prefix)
+		if not model then return end
+		local animator = model:FindFirstChildWhichIsA("Animator", true)
+		if not animator then return end
+		local tracks = animator:GetPlayingAnimationTracks()
+		print("----- [QTE ANIM DEBUG]", prefix, model.Name, "-----")
+		if #tracks == 0 then
+			print("   -> (No tracks playing)")
+		end
+		for _, track in ipairs(tracks) do
+			local animName = track.Animation and track.Animation.Name or "Unknown"
+			print(string.format("   -> Anim: %s | Speed: %.2f | Weight: %.2f | TimePos: %.2f | Priority: %s",
+				animName, track.Speed, track.WeightCurrent, track.TimePosition, tostring(track.Priority)))
+		end
+	end
+
 	function MatchPresentationController:_freezeActorsForPreQte(actorModel, enemyModel, payload)
 		if self.IsPreQteFrozen then
 			return
@@ -501,36 +522,86 @@ return function(MatchPresentationController, Context)
 		if posePayload and poseActorModel and not shouldSkipActionPose(posePayload) then
 			self:_applyPreQteHoldPose(posePayload, poseActorModel, poseEnemyModel, true)
 		elseif posePayload and poseActorModel and shouldSkipActionPose(posePayload) then
+			local actionConfig = getActionPoseConfig(posePayload.Action)
 			stopActionPoseTracks(poseActorModel)
-			self:_playMotionAnimation(poseActorModel, "Idle", 1.0)
+			
+			local animToPlay = actionConfig.Animations[1] or "Run"
+			local runTrack = self:_playRigAnimation(poseActorModel, animToPlay, 1.0, 0)
+			
+			if runTrack and animToPlay == "Run" then
+				pcall(function()
+					runTrack.TimePosition = math.random() * 0.4 + 0.1
+				end)
+			end
+			if poseEnemyModel then
+				stopActionPoseTracks(poseEnemyModel)
+				local enemyRuntimeSlot = self._getEnemyRuntimeSlotFromModel and self:_getEnemyRuntimeSlotFromModel(poseEnemyModel)
+				local isKeeper = enemyRuntimeSlot == Constants.GOALKEEPER_RUNTIME_SLOT
+					or poseEnemyModel.Name == "GoalKeeper"
+					or poseEnemyModel.Name == "Keeper"
+				self:_playRigAnimation(
+					poseEnemyModel,
+					isKeeper and "Idle" or (actionConfig.EnemyAnimation or "Run"),
+					isKeeper and 1.0 or (actionConfig.EnemySpeed or 1.0),
+					0
+				)
+			end
 		end
 
+		-- The passer model's animation will be handled by freezeModel loop below.
+
 		self.IsPreQteFrozen = true
-		self:_setTimeScale(QTE_SLOWMO_TIME_SCALE)
 
 		table.clear(self.FrozenRigModels)
 
-		local function freezeModel(model)
+		local function freezeModel(model, isTeammate)
 			if self:_shouldKeepModelLiveDuringQte(model) then
 				return
 			end
 
 			if model and model.Parent and not self.FrozenRigModels[model] then
+				local animate = model:FindFirstChild("Animate")
+				if animate and animate:IsA("BaseScript") then
+					animate.Enabled = false
+				end
+				
+				local isKeeper = false
+				if self._getEnemyRuntimeSlotFromModel then
+					isKeeper = self:_getEnemyRuntimeSlotFromModel(model) == Constants.GOALKEEPER_RUNTIME_SLOT
+				end
+				if not isKeeper and (model.Name == "GoalKeeper" or model.Name == "Keeper") then
+					isKeeper = true
+				end
+
+				if isKeeper then
+					stopActionPoseTracks(model)
+					self:_playRigAnimation(model, "Idle", 1.0, 0)
+				elseif model ~= poseActorModel and model ~= poseEnemyModel then
+					stopActionPoseTracks(model)
+					local runSpeed = isTeammate and 1 or 1
+					local runTrack = self:_playRigAnimation(model, "Run", runSpeed, 0)
+					if runTrack then
+						pcall(function()
+							runTrack.TimePosition = math.random() * 0.4 + 0.1
+						end)
+					end
+				end
+
 				self.FrozenRigModels[model] = true
 				self:_pauseRigAnimation(model, QTE_SLOWMO_ANIMATION_SPEED)
 			end
 		end
 
-		freezeModel(actorModel)
-		freezeModel(enemyModel)
-		freezeModel(self.PlayerProxy)
+		freezeModel(actorModel, true)
+		freezeModel(enemyModel, false)
+		freezeModel(self.PlayerProxy, true)
 
 		for slotNumber = 1, 4 do
-			freezeModel(self:_getControlledActorModel(slotNumber))
+			freezeModel(self:_getControlledActorModel(slotNumber), true)
 		end
 
 		self:_forEachEnemyModel(function(spawnedEnemy)
-			freezeModel(spawnedEnemy)
+			freezeModel(spawnedEnemy, false)
 
 			if self._acquireEnemyMotionLock and not self:_shouldKeepModelLiveDuringQte(spawnedEnemy) then
 				self:_acquireEnemyMotionLock(spawnedEnemy, "Frozen", { Force = true })
@@ -540,16 +611,29 @@ return function(MatchPresentationController, Context)
 		self:_hideAllEmbeddedMatchBalls()
 		self:_startQteFreezeAnimationGuard()
 
-		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchTimeScale then
-			self.MatchActorRuntimeController:SetLocalMatchTimeScale(LocalPlayer, QTE_SLOWMO_TIME_SCALE)
+		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchAnimationFrozen then
+			self.MatchActorRuntimeController:SetLocalMatchAnimationFrozen(LocalPlayer, true)
 		end
 
-		if self.MatchBattleCameraController and self.MatchBattleCameraController.StartQteSoftFollow then
-			self.MatchBattleCameraController:StartQteSoftFollow()
-		elseif self.MatchBattleCameraController and self.MatchBattleCameraController.PauseQteCamera then
-			self.MatchBattleCameraController:PauseQteCamera()
-		end
+		task.spawn(function()
+			RunService.Heartbeat:Wait()
+			if not self.IsPreQteFrozen then return end
 
+			self:_setTimeScale(QTE_SLOWMO_TIME_SCALE)
+
+			debugPrintPlayingAnimations(actorModel, "ACTOR")
+			debugPrintPlayingAnimations(enemyModel, "ENEMY")
+
+			if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchTimeScale then
+				self.MatchActorRuntimeController:SetLocalMatchTimeScale(LocalPlayer, QTE_SLOWMO_TIME_SCALE, QTE_SLOWMO_ANIMATION_SPEED)
+			end
+
+			if self.MatchBattleCameraController and self.MatchBattleCameraController.StartQteSoftFollow then
+				self.MatchBattleCameraController:StartQteSoftFollow()
+			elseif self.MatchBattleCameraController and self.MatchBattleCameraController.PauseQteCamera then
+				self.MatchBattleCameraController:PauseQteCamera()
+			end
+		end)
 	end
 
 	local function forceResumeModelTracks(model)
@@ -564,7 +648,8 @@ return function(MatchPresentationController, Context)
 
 		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
 			pcall(function()
-				track:AdjustSpeed(1)
+				local baseSpeed = track:GetAttribute("BaseSpeed") or 1.0
+				track:AdjustSpeed(baseSpeed)
 			end)
 		end
 	end
@@ -600,6 +685,7 @@ return function(MatchPresentationController, Context)
 		self.PendingPreQtePosePayload = nil
 		self.PendingPreQtePoseActorModel = nil
 		self.PendingPreQtePoseEnemyModel = nil
+		self.PendingPreQtePasserModel = nil
 
 		if self._resetEnemyMotionLocks then
 			self:_resetEnemyMotionLocks()
@@ -616,7 +702,11 @@ return function(MatchPresentationController, Context)
 		self:_resumeKnownMatchRigAnimations()
 
 		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchTimeScale then
-			self.MatchActorRuntimeController:SetLocalMatchTimeScale(LocalPlayer, DEFAULT_TIME_SCALE)
+			self.MatchActorRuntimeController:SetLocalMatchTimeScale(LocalPlayer, DEFAULT_TIME_SCALE, DEFAULT_TIME_SCALE)
+		end
+
+		if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchAnimationFrozen then
+			self.MatchActorRuntimeController:SetLocalMatchAnimationFrozen(LocalPlayer, false)
 		end
 
 		if self.MatchBattleCameraController and self.MatchBattleCameraController.ResumeQteCamera then
@@ -665,6 +755,14 @@ return function(MatchPresentationController, Context)
 			return
 		end
 
+		local currentCarrier = self.MatchBallController and self.MatchBallController.CurrentFollowActor
+		if currentCarrier and currentCarrier ~= actorModel then
+			self.PendingPreQtePasserModel = currentCarrier
+		else
+			local passerSlot = payload and tonumber(payload.FromSlot)
+			self.PendingPreQtePasserModel = passerSlot and self:_getControlledActorModel(passerSlot)
+		end
+
 		self.PendingPreQtePosePayload = payload
 		self.PendingPreQtePoseActorModel = actorModel
 		self.PendingPreQtePoseEnemyModel = enemyModel
@@ -694,13 +792,18 @@ return function(MatchPresentationController, Context)
 
 		if actionConfig.SkipActionPose == true then
 			stopActionPoseTracks(actorModel)
-			self:_playMotionAnimation(actorModel, "Idle", 1.0)
+			self:_playRigAnimation(actorModel, actionConfig.Animations[1] or "Run", 1.0, 0)
 
 			if enemyModel then
-				self:_playMotionAnimation(
+				local enemyRuntimeSlot = self._getEnemyRuntimeSlotFromModel and self:_getEnemyRuntimeSlotFromModel(enemyModel)
+				local isKeeper = enemyRuntimeSlot == Constants.GOALKEEPER_RUNTIME_SLOT
+					or enemyModel.Name == "GoalKeeper"
+					or enemyModel.Name == "Keeper"
+				self:_playRigAnimation(
 					enemyModel,
-					actionConfig.EnemyAnimation or "Idle",
-					actionConfig.EnemySpeed or 1.0
+					isKeeper and "Idle" or (actionConfig.EnemyAnimation or "Run"),
+					isKeeper and 1.0 or (actionConfig.EnemySpeed or 1.0),
+					0
 				)
 			end
 
@@ -719,7 +822,7 @@ return function(MatchPresentationController, Context)
 		end
 	end
 
-	function MatchPresentationController:_playPreQteActionPose(model, animationNames, speed, snapFadeTime)
+	function MatchPresentationController:_playPreQteActionPose(model, animationNames, speed, fade)
 		if not model then
 			return nil
 		end
@@ -733,16 +836,15 @@ return function(MatchPresentationController, Context)
 			candidates = { "Run" }
 		end
 
-		local fade = snapFadeTime ~= nil and snapFadeTime or 0.02
-
 		for _, animationName in ipairs(candidates) do
-			local track = self:_playRigAnimation(model, animationName, speed or 1.0, fade)
+			local track = self:_playRigAnimation(model, animationName, speed or 1.0, 0)
 			if track then
 				pcall(function()
 					track:Stop(0)
 					track.TimePosition = 0
-					track:Play(fade)
+					track:Play(0)
 					track:AdjustSpeed(1)
+					track:AdjustWeight(1, 0)
 				end)
 
 				return track
@@ -761,13 +863,21 @@ return function(MatchPresentationController, Context)
 
 		if actionConfig.SkipActionPose == true then
 			stopActionPoseTracks(actorModel)
-			self:_playMotionAnimation(actorModel, "Idle", 1.0)
+			self:_playMotionAnimation(actorModel, actionConfig.Animations[1] or "Run", 1.0)
 
 			if enemyModel then
+				local isKeeper = false
+				if self._getEnemyRuntimeSlotFromModel then
+					isKeeper = self:_getEnemyRuntimeSlotFromModel(enemyModel) == Constants.GOALKEEPER_RUNTIME_SLOT
+				end
+				if not isKeeper and (enemyModel.Name == "GoalKeeper" or enemyModel.Name == "Keeper") then
+					isKeeper = true
+				end
+
 				self:_playMotionAnimation(
 					enemyModel,
-					actionConfig.EnemyAnimation or "Idle",
-					actionConfig.EnemySpeed or 1.0
+					isKeeper and "Idle" or (actionConfig.EnemyAnimation),
+					isKeeper and 1.0 or (actionConfig.EnemySpeed or 1.0)
 				)
 			end
 

@@ -2430,11 +2430,6 @@ local function ResolveSaveLift(shotTargetId, ballHeightOffset, isCenter, scaleCo
 end
 
 local function ResolveKeeperVisualScale(model)
-	local configuredScale = tonumber(MatchKeeperConfig.KeeperVisualScale)
-	if configuredScale and configuredScale > 0 then
-		return configuredScale
-	end
-
 	if model and typeof(model) == "Instance" and model:IsA("Model") and model.GetScale then
 		local ok, resolvedScale = pcall(function()
 			return model:GetScale()
@@ -2443,6 +2438,11 @@ local function ResolveKeeperVisualScale(model)
 		if ok and type(resolvedScale) == "number" and resolvedScale > 0 then
 			return resolvedScale
 		end
+	end
+
+	local configuredScale = tonumber(MatchKeeperConfig.KeeperVisualScale)
+	if configuredScale and configuredScale > 0 then
+		return configuredScale
 	end
 
 	return 1
@@ -2788,7 +2788,9 @@ function MatchKeeperPresentationController:_buildReactionData(
 	landedCFrame = self:_clampKeeperCFrame(landedCFrame, "landed")
 	recoverCFrame = self:_clampKeeperCFrame(recoverCFrame, "recover")
 
-	local centerSaveKnockdown = not isGoal and isCenter and MatchKeeperConfig.CenterSaveGroundedKnockdownEnabled == true
+	-- Knockdown/ragdoll hanya saat goal masuk lewat tengah (keeper kalah).
+	-- Kalau keeper save center (isGoal = false), keeper menang → tidak boleh ragdoll.
+	local centerSaveKnockdown = isGoal and isCenter and MatchKeeperConfig.CenterSaveGroundedKnockdownEnabled == true
 
 	return {
 		InterceptCFrame = interceptCFrame,

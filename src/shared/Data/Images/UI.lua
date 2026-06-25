@@ -213,7 +213,7 @@ return table.freeze({
 	Shoot = "rbxassetid://92437273343020",
 	Pass = "rbxassetid://75325465516576",
 	Dribble = "rbxassetid://117288549634340",
-	Stamina = "rbxassetid://92065232334582",
+	Stamina = "rbxassetid://123882613555793",
 
 	-- Chests
 	Drip_Pack_Closed = "rbxassetid://134592058210299",

@@ -14,7 +14,7 @@ return table.freeze({
 		Target = 0,
 	},
 	[3] = {
-		Text = "To get more powerful, you need to train your stats. Train your Stamina stats!",
+		Text = "To get more powerful, you need to train your stats. Train your Stamina stats so your team can train longer!",
 		ArrowTarget = function()
 			return workspace
 				:WaitForChild("Map")
@@ -69,7 +69,7 @@ return table.freeze({
 		Target = 0,
 	},
 	[8] = {
-		Text = "Buy character pack to unlock more players!",
+		Text = "Buy player packs to unlock more player. Better player will apply better stats boost during matches!",
 		ArrowTarget = function()
 			return nil
 		end,
@@ -83,7 +83,7 @@ return table.freeze({
 		Target = 0,
 	},
 	[10] = {
-		Text = "Buy accessories to boost your character stats during matches!",
+		Text = "Buy accessories to boost your player stats during matches!",
 		ArrowTarget = function()
 			return workspace
 				:WaitForChild("Map")

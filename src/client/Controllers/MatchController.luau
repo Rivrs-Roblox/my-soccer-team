@@ -6,8 +6,10 @@ local RunService = game:GetService("RunService")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages:WaitForChild("Knit"))
 
+local MatchConstants = require(ReplicatedStorage.Shared.Data.Match.MatchConstants)
 local MatchSceneQuery = require(ReplicatedStorage.Shared.Helpers.Match.MatchSceneQuery)
 local EnemyBillboardFactory = require(script.Parent.Parent.Modules.Match.EnemyBillboardFactory)
+local PlayerBillboardFactory = require(script.Parent.Parent.Modules.Match.PlayerBillboardFactory)
 local Sound = require(Packages:WaitForChild("Sound"))
 local formatnumber = require(ReplicatedStorage.Shared.Helpers.Numbers.FormatNumber)
 local MatchCharacterPropVisibility =
@@ -31,6 +33,8 @@ local SoccerCharactersController = nil
 local MatchCompanionVisualController = nil
 local CoachesController = nil
 local MatchPresentationController = nil
+local MatchBallCarrierMarkerController = nil
+local TitleService = nil
 
 local ENEMY_BILLBOARD_OFFSETS = {
 	[1] = Vector3.new(-1.25, 2.6, 0),
@@ -41,6 +45,9 @@ local ENEMY_BILLBOARD_OFFSETS = {
 
 local RETURN_OVERLAY_RELEASE_DELAY = 0.35
 local RETURN_OVERLAY_MIN_HOLD = 0.30
+
+-- Berapa lama (detik) warna hijau/merah billboard ditampilkan sebelum di-hide
+local PLAYER_BILLBOARD_COLOR_HOLD = 0.7
 
 --| Match Controller |--
 local MatchController = Knit.CreateController({
@@ -269,6 +276,12 @@ function MatchController:_destroyBillboards()
 	end
 	table.clear(self._enemyBillboards)
 	table.clear(self._enemyBillboardsByStep)
+	if self._enemyStepValues then
+		table.clear(self._enemyStepValues)
+	end
+	if PlayerBillboardFactory then
+		PlayerBillboardFactory.Cleanup()
+	end
 end
 
 function MatchController:_applyEnemyBillboards(payload)
@@ -288,37 +301,52 @@ function MatchController:_applyEnemyBillboards(payload)
 				billboard.Parent = enemyInstance
 				table.insert(self._enemyBillboards, billboard)
 				self._enemyBillboardsByStep[stepIndex] = billboard
-				EnemyBillboardFactory.SetText(
-					billboard,
-					("QTE %d"):format(stepIndex),
-					formatnumber(stepData.Value or 0)
-				)
+				-- Simpan nilai enemy default per step untuk ditampilkan saat aktif
+				self._enemyStepValues[stepIndex] = stepData.Value or 0
+				-- Hidden sampai QTE step ini mulai
 				EnemyBillboardFactory.SetActive(billboard, false)
 			end
 		end
 	end
 end
 
-function MatchController:_setActiveEnemyBillboard(enemyStep, actionName, enemyValue)
+function MatchController:_setActiveEnemyBillboard(enemyStep, actionName, enemyValue, playerValue)
 	for stepIndex, billboard in pairs(self._enemyBillboardsByStep) do
 		local isActive = stepIndex == enemyStep
-		EnemyBillboardFactory.SetActive(billboard, isActive)
+		local resolvedEnemyValue = tonumber(enemyValue or self._enemyStepValues[stepIndex]) or 0
+		local canPass = isActive and (tonumber(playerValue) or 0) >= resolvedEnemyValue
+		EnemyBillboardFactory.SetActive(
+			billboard,
+			isActive,
+			isActive and actionName or nil,
+			isActive and resolvedEnemyValue or nil,
+			canPass
+		)
+	end
+end
 
-		if isActive then
-			EnemyBillboardFactory.SetText(
-				billboard,
-				string.upper(actionName or ("QTE " .. tostring(stepIndex))),
-				formatnumber(enemyValue or 0)
-			)
-		else
-			local payload = self._currentPayload
-			local stepData = payload and payload.EnemySteps and payload.EnemySteps[stepIndex]
-			EnemyBillboardFactory.SetText(
-				billboard,
-				("QTE %d"):format(stepIndex),
-				formatnumber(stepData and stepData.Value or 0)
-			)
-		end
+function MatchController:_showPredictedQteStatResult(qteTier)
+	local stepPayload = self._currentStepPayload
+	if typeof(stepPayload) ~= "table" then
+		return
+	end
+
+	local previewValue = tonumber(stepPayload.PreviewValue) or 0
+	local enemyValue = tonumber(stepPayload.EnemyValue) or 0
+	local multiplier = tonumber(MatchConstants.QTE_TIER_MULTIPLIERS[qteTier]) or 1
+	local predictedFinalValue = math.floor((previewValue * multiplier) + 0.5)
+	local canPass = predictedFinalValue >= enemyValue
+
+	local actorSlot = stepPayload.ActorSlot or 1
+	local adornee = self:_resolvePlayerActorAdornee(actorSlot)
+	if adornee and adornee.Parent then
+		PlayerBillboardFactory.SetResolvedValue(adornee.Parent, actorSlot, predictedFinalValue)
+	end
+
+	local enemyStep = stepPayload.EnemyStep or stepPayload.StepIndex
+	local enemyBillboard = enemyStep and self._enemyBillboardsByStep[enemyStep] or nil
+	if enemyBillboard then
+		EnemyBillboardFactory.SetComparisonState(enemyBillboard, canPass, enemyValue)
 	end
 end
 
@@ -352,6 +380,8 @@ function MatchController:_submitCurrentQte(options)
 	if not result then
 		return false
 	end
+
+	self:_showPredictedQteStatResult(result.Tier)
 
 	local isShootQte = IsShootAction(self._currentStepPayload and self._currentStepPayload.Action)
 	if isShootQte and MatchShootTargetResolver then
@@ -572,6 +602,23 @@ function MatchController:_handleSessionStarted(payload)
 
 		self:_applyEnemyBillboards(payload)
 
+		if self._playerBillboard then
+			PlayerBillboardFactory.Destroy(self._playerBillboard)
+			self._playerBillboard = nil
+		end
+
+		task.spawn(function()
+			while self._inMatch do
+				for slotNum = 1, 4 do
+					local adornee = self:_resolvePlayerActorAdornee(slotNum)
+					if adornee and adornee.Parent then
+						PlayerBillboardFactory.EnsureBillboard(adornee.Parent, slotNum)
+					end
+				end
+				RunService.RenderStepped:Wait()
+			end
+		end)
+
 		if not isLegContinuation then
 			self:_waitForIntroVisualReady(payload)
 		end
@@ -607,9 +654,18 @@ function MatchController:_handleSessionStarted(payload)
 
 		self:_disableControls()
 		self._transitionBusy = false
-		if not isLegContinuation then
-			self:_notify(("Match ready for %s."):format(payload.AreaId), "SUCCESS")
-		end
+
+		task.spawn(function()
+			for _ = 1, 5 do
+				RunService.RenderStepped:Wait()
+			end
+			for slot = 1, 4 do
+				local adornee = self:_resolvePlayerActorAdornee(slot)
+				if adornee and adornee.Parent then
+					PlayerBillboardFactory.EnsureBillboard(adornee.Parent, slot)
+				end
+			end
+		end)
 	end)
 end
 
@@ -808,19 +864,7 @@ function MatchController:_handleSessionEnded(reason, sessionId)
 			self._transitionBusy = false
 		end
 
-		if reasonText == "LegContinuation" then
-			-- Mid-match goals continue directly in-game; no popup/toast here.
-		elseif isTournamentContinuation or reason == "Victory" then
-			self:_notify("Goal! Match won.", "SUCCESS")
-		elseif isChampionCeremony then
-			self:_notify("Champion! Trophy ceremony started.", "SUCCESS")
-		elseif reason == "Defeat" then
-			self:_notify("You lost the match.", "ERROR")
-		elseif reason == "ManualExit" then
-			self:_notify("Exited match.", "INFO")
-		else
-			self:_notify("Returned from match.", "INFO")
-		end
+		-- (match-end toast notifications removed)
 	end)
 end
 
@@ -967,14 +1011,30 @@ function MatchController:_handleStepStarted(stepPayload)
 	self._currentStepPayload = stepPayload
 	self._qteOpen = true
 
-	self:_setActiveEnemyBillboard(stepPayload.EnemyStep, stepPayload.Action, stepPayload.EnemyValue)
+	self:_setActiveEnemyBillboard(
+		stepPayload.EnemyStep,
+		stepPayload.Action,
+		stepPayload.EnemyValue,
+		stepPayload.PreviewValue
+	)
+
+	-- Tampilkan player billboard di atas karakter aktif
+	local actorSlot = stepPayload.ActorSlot or 1
+	local adornee = self:_resolvePlayerActorAdornee(actorSlot)
+	if adornee and adornee.Parent then
+		PlayerBillboardFactory.EnsureBillboard(adornee.Parent, actorSlot)
+		PlayerBillboardFactory.SetActive(
+			adornee.Parent,
+			actorSlot,
+			true,
+			tostring(stepPayload.Action or "Dribble"),
+			tonumber(stepPayload.PreviewValue) or 0
+		)
+	end
 
 	if MatchUIController then
 		MatchUIController:SetCompareText("")
 		MatchUIController:HideComparePill()
-		if MatchUIController.ShowActionBanner then
-			MatchUIController:ShowActionBanner(stepPayload)
-		end
 		MatchUIController:ShowQte(stepPayload, function()
 			self:_submitCurrentQte()
 		end)
@@ -987,6 +1047,45 @@ function MatchController:_handleStepResolved(resultPayload)
 
 	resultPayload = typeof(resultPayload) == "table" and resultPayload or {}
 	local isShootResult = IsShootAction(resultPayload.Action)
+	local succeeded = resultPayload.Succeeded == true
+
+	local stepPayload = self._currentStepPayload or {}
+	local actorSlot = resultPayload.ActorSlot or stepPayload.ActorSlot or 1
+	local adornee = self:_resolvePlayerActorAdornee(actorSlot)
+	local finalValue = tonumber(resultPayload.FinalValue or resultPayload.Value) or 0
+	local enemyValue = tonumber(resultPayload.EnemyValue or stepPayload.EnemyValue) or 0
+	local enemyStep = resultPayload.EnemyStep or stepPayload.EnemyStep or stepPayload.StepIndex
+
+	if adornee and adornee.Parent then
+		-- Player stat is always white; only its resolved value changes.
+		PlayerBillboardFactory.SetResolvedValue(adornee.Parent, actorSlot, finalValue)
+	end
+
+	local enemyBillboard = enemyStep and self._enemyBillboardsByStep[enemyStep] or nil
+	if enemyBillboard then
+		-- Enemy icon/value is the sole passability indicator.
+		EnemyBillboardFactory.SetComparisonState(enemyBillboard, succeeded, enemyValue)
+	end
+
+	-- Pastikan default billboards tetap aktif
+	if adornee and adornee.Parent then
+		PlayerBillboardFactory.EnsureBillboard(adornee.Parent, actorSlot)
+	end
+
+	-- Hide billboard setelah color hold delay
+	task.delay(PLAYER_BILLBOARD_COLOR_HOLD, function()
+		if not self._inMatch then return end
+		if adornee and adornee.Parent then
+			PlayerBillboardFactory.Hide(adornee.Parent, actorSlot)
+		end
+		-- Enemy billboard juga hidden kembali setelah color ditampilkan
+		if enemyStep then
+			local enemyBillboard = self._enemyBillboardsByStep[enemyStep]
+			if enemyBillboard then
+				EnemyBillboardFactory.SetActive(enemyBillboard, false)
+			end
+		end
+	end)
 
 	if MatchUIController then
 		MatchUIController:SetCompareText("")
@@ -996,8 +1095,6 @@ function MatchController:_handleStepResolved(resultPayload)
 			MatchUIController:IncrementGoals(resultPayload.AwardedGoals)
 		end
 		if isShootResult then
-			-- Shoot cinematic/result presentation owns the next visual beat.
-			-- Do not leave the timing UI up for the generic post-QTE delay.
 			MatchUIController:HideQte({
 				ResumeBroadcastClock = false,
 			})
@@ -1006,6 +1103,17 @@ function MatchController:_handleStepResolved(resultPayload)
 
 	if isShootResult then
 		return
+	end
+
+	-- For non-shoot defeat: show the lose popup after the QTE tier feedback
+	-- popup has had time to display (~0.9s). The server waits DEFEAT_UI_HOLD_DELAY
+	-- (3.2s) before triggering FadeToBlack, so the player has ~2s to read the result.
+	-- This is safe — server's defeatRestartLocks is already set before the delay.
+	if not succeeded and MatchUIController and MatchUIController.ShowMatchResult then
+		task.delay(0.9, function()
+			if not self._inMatch then return end
+			MatchUIController:ShowMatchResult(false, resultPayload)
+		end)
 	end
 
 	task.delay(0.55, function()
@@ -1018,11 +1126,40 @@ function MatchController:_handleStepResolved(resultPayload)
 	end)
 end
 
---| Knit Startup |--
+
+--| Helper: create/destroy player billboard |--
+
+function MatchController:_resolvePlayerActorAdornee(slotNumber)
+	-- Gunakan MatchBallCarrierMarkerController yang sudah punya logic resolve actor model
+	if MatchBallCarrierMarkerController and MatchBallCarrierMarkerController._resolveActorModel then
+		local ok, model = pcall(function()
+			return MatchBallCarrierMarkerController:_resolveActorModel(slotNumber or 1)
+		end)
+		if ok and model and model.Parent then
+			local hrp = model:FindFirstChild("HumanoidRootPart", true)
+				or model:FindFirstChild("Head", true)
+				or (model:IsA("BasePart") and model or nil)
+			if hrp then return hrp end
+		end
+	end
+	-- Fallback: coba cari proxy langsung
+	local runtimeRoot = workspace:FindFirstChild("LocalMatchPresentationRuntime")
+	local proxy = runtimeRoot and runtimeRoot:FindFirstChild("LocalMatchPlayerProxy")
+	if proxy and proxy:IsA("Model") then
+		return proxy:FindFirstChild("HumanoidRootPart", true)
+			or proxy:FindFirstChild("Head", true)
+			or proxy.PrimaryPart
+	end
+	return nil
+end
+
+-- (Removed _ensureDefaultBillboards logic since it's now handled entirely by PlayerBillboardFactory)
 function MatchController:KnitInit()
 	self._controls = nil
 	self._enemyBillboards = {}
 	self._enemyBillboardsByStep = {}
+	self._enemyStepValues = {}
+	self._playerBillboard = nil
 	self._inMatch = false
 	self._transitionBusy = false
 	self._qteOpen = false
@@ -1048,6 +1185,9 @@ function MatchController:KnitStart()
 	MatchService = Knit.GetService("MatchService")
 
 	pcall(function()
+		TitleService = Knit.GetService("TitleService")
+	end)
+	pcall(function()
 		NotificationController = Knit.GetController("NotificationController")
 	end)
 	pcall(function()
@@ -1067,6 +1207,9 @@ function MatchController:KnitStart()
 	end)
 	pcall(function()
 		MatchPresentationController = Knit.GetController("MatchPresentationController")
+	end)
+	pcall(function()
+		MatchBallCarrierMarkerController = Knit.GetController("MatchBallCarrierMarkerController")
 	end)
 
 	self:_bindLeaveInput()

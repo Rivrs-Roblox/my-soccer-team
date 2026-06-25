@@ -369,7 +369,7 @@ function MatchEnemyController:_buildSpawnCFrame(slotNumber: number, slotConfig, 
 	return nil
 end
 
-function MatchEnemyController:_prepareEnemyModel(model: Model, areaId: string, sessionId: string, slotNumber: number, slotConfig, opponentTeam)
+function MatchEnemyController:_prepareEnemyModel(model: Model, areaId: string, sessionId: string, slotNumber: number, slotConfig, opponentTeam, enemyStageName, enemyTeamFolderName)
 	StripScripts(model)
 	ResetRuntimeRagdollResidue(model)
 	MakeVisualOnly(model)
@@ -379,6 +379,8 @@ function MatchEnemyController:_prepareEnemyModel(model: Model, areaId: string, s
 	model:SetAttribute("MatchEnemyAreaId", areaId)
 	model:SetAttribute("MatchEnemySlot", slotNumber)
 	model:SetAttribute("MatchEnemyRole", slotConfig.Role or "Defender")
+	model:SetAttribute("MatchEnemyStage", tostring(enemyStageName or ""))
+	model:SetAttribute("MatchEnemyTeamFolder", tostring(enemyTeamFolderName or ""))
 	model:SetAttribute("SessionId", sessionId)
 
 	if typeof(opponentTeam) == "table" then
@@ -388,14 +390,15 @@ function MatchEnemyController:_prepareEnemyModel(model: Model, areaId: string, s
 	end
 end
 
-function MatchEnemyController:_resolveEnemyModel(areaConfig, slotConfig, opponentTeam)
-	local teamAssetFolderName = ""
-	if typeof(opponentTeam) == "table" then
+function MatchEnemyController:_resolveEnemyModel(areaConfig, slotConfig, opponentTeam, enemyStageName, enemyTeamFolderName)
+	local teamAssetFolderName = tostring(enemyTeamFolderName or "")
+	if teamAssetFolderName == "" and typeof(opponentTeam) == "table" then
 		teamAssetFolderName = tostring(opponentTeam.AssetFolderName or opponentTeam.TeamId or "")
 	end
 
 	local model = GetMatchEnemyModel({
 		AssetFolderName = areaConfig.AssetFolderName,
+		EnemyStageName = enemyStageName,
 		TeamAssetFolderName = teamAssetFolderName,
 		ModelName = slotConfig.ModelName,
 		FallbackModelName = slotConfig.FallbackModelName,
@@ -414,14 +417,14 @@ function MatchEnemyController:_resolveEnemyModel(areaConfig, slotConfig, opponen
 	return model, nil
 end
 
-function MatchEnemyController:_spawnEnemySlot(areaConfig, areaId: string, sessionId: string, slotNumber: number, slotConfig, folder: Folder, opponentTeam)
-	local model, resolveError = self:_resolveEnemyModel(areaConfig, slotConfig, opponentTeam)
+function MatchEnemyController:_spawnEnemySlot(areaConfig, areaId: string, sessionId: string, slotNumber: number, slotConfig, folder: Folder, opponentTeam, enemyStageName, enemyTeamFolderName)
+	local model, resolveError = self:_resolveEnemyModel(areaConfig, slotConfig, opponentTeam, enemyStageName, enemyTeamFolderName)
 	if not model then
 		warn("[MatchEnemyController]", resolveError, "area=", areaId, "slot=", slotNumber)
 		return
 	end
 
-	self:_prepareEnemyModel(model, areaId, sessionId, slotNumber, slotConfig, opponentTeam)
+	self:_prepareEnemyModel(model, areaId, sessionId, slotNumber, slotConfig, opponentTeam, enemyStageName, enemyTeamFolderName)
 
 	local spawnCFrame = self:_buildSpawnCFrame(slotNumber, slotConfig, sessionId)
 	if not spawnCFrame then
@@ -450,6 +453,8 @@ function MatchEnemyController:_spawnEnemiesForSession(payload)
 	if typeof(payload.Tournament) == "table" and typeof(payload.Tournament.OpponentTeam) == "table" then
 		opponentTeam = payload.Tournament.OpponentTeam
 	end
+	local enemyStageName = tostring(payload.EnemyStageName or "Stage1")
+	local enemyTeamFolderName = tostring(payload.EnemyTeamFolderName or "")
 
 	if areaId == "" or sessionId == "" then
 		warn("[MatchEnemyController] Missing areaId or sessionId")
@@ -476,7 +481,7 @@ function MatchEnemyController:_spawnEnemiesForSession(payload)
 	for slotNumber = 1, GOALKEEPER_SLOT do
 		local slotConfig = areaConfig.Slots and areaConfig.Slots[slotNumber]
 		if slotConfig then
-			self:_spawnEnemySlot(areaConfig, areaId, sessionId, slotNumber, slotConfig, folder, opponentTeam)
+			self:_spawnEnemySlot(areaConfig, areaId, sessionId, slotNumber, slotConfig, folder, opponentTeam, enemyStageName, enemyTeamFolderName)
 		else
 			warn("[MatchEnemyController] Missing slot config for slot", slotNumber, "area", areaId)
 		end

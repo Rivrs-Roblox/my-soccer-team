@@ -21,10 +21,16 @@ end
 
 function StaminaTrainingRuntime.GetLayout(zone: BasePart, totalCount: number)
 	local pivots = {}
+	local exitPivots = {}
 	for i = 1, math.max(4, totalCount) do
 		local pivotData = GetPivotData(zone, "Pivot" .. tostring(i))
 		if pivotData then
 			pivots[i] = pivotData
+		end
+
+		local exitPivotData = GetPivotData(zone, "ExitPivot" .. tostring(i))
+		if exitPivotData then
+			exitPivots[i] = exitPivotData
 		end
 	end
 
@@ -35,9 +41,17 @@ function StaminaTrainingRuntime.GetLayout(zone: BasePart, totalCount: number)
 		end
 	end
 
+	if not exitPivots[1] then
+		local singleExitPivot = GetPivotData(zone, "ExitPivot")
+		if singleExitPivot then
+			exitPivots[1] = singleExitPivot
+		end
+	end
+
 	return {
 		Zone = zone,
 		Pivots = pivots,
+		ExitPivots = exitPivots,
 		Coach = ZoneUtils.GetCoachPoint(zone),
 	}
 end
@@ -74,25 +88,54 @@ function StaminaTrainingRuntime.GetState(actorIndex: number, totalCount: number,
 	end
 
 	local targetPart = cycle.Layout.Zone
-	local pivotData = cycle.Layout.Pivots[actorIndex]
+	local isDraining = visualState.IsDraining == true
+	local phaseName = cycle.PhaseName
+	local phaseProgress = cycle.PhaseProgress
+	local expectedAnimation = "Run"
+	local previousTargetPart = nil
 
-	if pivotData and pivotData.Pivot then
-		targetPart = pivotData.Pivot
-	elseif cycle.Layout.Pivots[1] and cycle.Layout.Pivots[1].Pivot then
-		targetPart = cycle.Layout.Pivots[1].Pivot
+	local pivotData = cycle.Layout.Pivots[actorIndex]
+	local defaultPivot = pivotData and pivotData.Pivot or (cycle.Layout.Pivots[1] and cycle.Layout.Pivots[1].Pivot)
+
+	if isDraining then
+		local exitPivotData = cycle.Layout.ExitPivots[actorIndex]
+		if exitPivotData and exitPivotData.Pivot then
+			targetPart = exitPivotData.Pivot
+		elseif cycle.Layout.ExitPivots[1] and cycle.Layout.ExitPivots[1].Pivot then
+			targetPart = cycle.Layout.ExitPivots[1].Pivot
+		end
+
+		local elapsed = Workspace:GetServerTimeNow() - (visualState.DrainStartTime or 0)
+		local totalTime = visualState.DrainTotalTime or 1
+		local progress = math.clamp(elapsed / math.max(totalTime, 0.001), 0, 1)
+
+		phaseName = "NodeRun"
+		phaseProgress = progress
+		previousTargetPart = defaultPivot
+		expectedAnimation = "Walk"
+	else
+		if defaultPivot then
+			targetPart = defaultPivot
+		end
+	end
+
+	local lookAtPosition = targetPart.Position + targetPart.CFrame.RightVector * 10
+	if defaultPivot then
+		lookAtPosition = targetPart.Position + defaultPivot.CFrame.RightVector * 10
 	end
 
 	return {
 		Mode = "StaminaTraining",
 		ActorIndex = actorIndex,
 		TargetPart = targetPart,
-		ExpectedAnimation = "Run",
-		LookAtPosition = targetPart.Position + targetPart.CFrame.RightVector * 10,
+		PreviousTargetPart = previousTargetPart,
+		ExpectedAnimation = expectedAnimation,
+		LookAtPosition = lookAtPosition,
 		FacingMode = "Goal",
-		PhaseName = cycle.PhaseName,
+		PhaseName = phaseName,
 		PhaseElapsed = cycle.PhaseElapsed,
 		PhaseDuration = cycle.PhaseDuration,
-		PhaseProgress = cycle.PhaseProgress,
+		PhaseProgress = phaseProgress,
 		CycleIndex = cycle.CycleIndex,
 		Layout = cycle.Layout,
 	}

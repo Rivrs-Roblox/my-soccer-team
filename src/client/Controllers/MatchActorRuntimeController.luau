@@ -249,10 +249,15 @@ function MatchActorRuntimeController:_playSlotAnimation(slotState, requestedAnim
 		return
 	end
 
+	local ownerState = slotState.OwnerState
+	if ownerState and ownerState.AnimationFrozen then
+		return
+	end
+
 	local animationName = requestedAnimation or "Idle"
 	local speed = 1
 	local ownerState = slotState.OwnerState
-	local timeScale = ownerState and tonumber(ownerState.TimeScale) or 1
+	local timeScale = ownerState and tonumber(ownerState.AnimationScale or ownerState.TimeScale) or 1
 
 	if isLocomotionAnimation(animationName) then
 		-- Tactical movement normally keeps locomotion readable; QTE can scale this down.
@@ -349,7 +354,9 @@ function MatchActorRuntimeController:_ensureLocalMatchUpdateLoop()
 
 				local requestedAnimation = slotState.ExpectedAnimation or "Idle"
 
-				if not reached then
+				if slotState.SlotNumber == 5 then
+					requestedAnimation = "Idle"
+				elseif not reached then
 					if not isLocomotionAnimation(requestedAnimation) then
 						requestedAnimation = "Run"
 					end
@@ -638,7 +645,7 @@ function MatchActorRuntimeController:ResumeLocalMatch(player: Player)
 	return true
 end
 
-function MatchActorRuntimeController:SetLocalMatchTimeScale(player: Player, scale: number)
+function MatchActorRuntimeController:SetLocalMatchTimeScale(player: Player, scale: number, animationScale: number?)
 	if not player then
 		return false
 	end
@@ -649,6 +656,7 @@ function MatchActorRuntimeController:SetLocalMatchTimeScale(player: Player, scal
 	end
 
 	state.TimeScale = math.max(tonumber(scale) or 1, 0.01)
+	state.AnimationScale = animationScale and math.max(tonumber(animationScale) or 1, 0.01) or nil
 
 	for _, slotState in pairs(state.Slots) do
 		if slotState.Model and slotState.Model.Parent then
@@ -656,6 +664,20 @@ function MatchActorRuntimeController:SetLocalMatchTimeScale(player: Player, scal
 		end
 	end
 
+	return true
+end
+
+function MatchActorRuntimeController:SetLocalMatchAnimationFrozen(player: Player, frozen: boolean)
+	if not player then
+		return false
+	end
+
+	local state = self.LocalMatchStates[player]
+	if not state then
+		return false
+	end
+
+	state.AnimationFrozen = frozen
 	return true
 end
 

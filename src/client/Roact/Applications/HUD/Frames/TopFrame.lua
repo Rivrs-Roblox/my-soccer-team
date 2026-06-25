@@ -89,12 +89,12 @@ function TopFrame(_, hooks)
 			Icon = UI.Dribble,
 			Value = FormatNumber(playerReducer.Dribble),
 		}),
-		Stamina = Roact.createElement(StatCard, {
+		--[[ Stamina = Roact.createElement(StatCard, {
 			LayoutOrder = 6,
 			Title = "Stamina",
 			Icon = UI.Stamina,
 			Value = FormatNumber(playerReducer.Stamina),
-		}),
+		}), ]]
 	})
 end
 

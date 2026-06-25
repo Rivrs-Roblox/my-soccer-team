@@ -487,6 +487,11 @@ function MatchBallController:_setBallVisible(isVisible: boolean)
 	end)
 end
 
+function MatchBallController:SetBallVisible(isVisible: boolean)
+	self:_spawnBallIfNeeded()
+	self:_setBallVisible(isVisible == true)
+end
+
 function MatchBallController:_prepareBallInstance(instance)
 	ForEachBasePart(instance, function(part)
 		part.Anchored = true

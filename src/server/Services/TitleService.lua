@@ -62,6 +62,13 @@ function TitleService.Client:UpdateTitleData(player: Player, rebirths: number)
 	self.Server:UpdateTitleData(player, rebirths)
 end
 
+-- Kembalikan title string untuk player yang memanggil ini
+function TitleService.Client:GetMyTitle(player: Player): string
+	local data = DataService:GetData(player)
+	if not data then return "Benchwarmer 🪑💤" end
+	return titleDecider(tonumber(data.Rebirth) or 0)
+end
+
 function TitleService:UpdateTitleData(player: Player, rebirths: number)
 	local playerTitleGui = self.Titles[player.UserId]
 	if playerTitleGui then

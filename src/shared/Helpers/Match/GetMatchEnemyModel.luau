@@ -1,13 +1,12 @@
 --!strict
 -- GetMatchEnemyModel.luau
--- Resolves match enemy models from ReplicatedStorage.Assets.MatchEnemies.
--- Supports both legacy AreaXX/Enemy01 and new AreaXX/TeamYY/Enemy01 structures.
+-- Resolves match enemy models from ReplicatedStorage.Assets.Enemies.
+-- New structure: Stage1-4/Team01-15/Enemy01-03/Keeper.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Assets = ReplicatedStorage:WaitForChild("Assets")
-local SoccerCharactersAssets = Assets:WaitForChild("SoccerCharacters")
-local MatchEnemiesAssets = Assets:WaitForChild("MatchEnemies")
+local EnemiesAssets = Assets:WaitForChild("Enemies")
 
 local function PrepareModel(instance: Instance)
 	for _, descendant in ipairs(instance:GetDescendants()) do
@@ -20,20 +19,20 @@ local function PrepareModel(instance: Instance)
 	end
 end
 
-local function ResolveAreaFolder(areaFolderName: string?): Instance?
-	if not areaFolderName or areaFolderName == "" then
+local function ResolveStageFolder(stageFolderName: string?): Instance?
+	if not stageFolderName or stageFolderName == "" then
 		return nil
 	end
 
-	return MatchEnemiesAssets:FindFirstChild(areaFolderName)
+	return EnemiesAssets:FindFirstChild(stageFolderName)
 end
 
-local function ResolveTeamFolder(areaFolder: Instance?, teamFolderName: string?): Instance?
-	if not areaFolder or not teamFolderName or teamFolderName == "" then
+local function ResolveChildFolder(parent: Instance?, childName: string?): Instance?
+	if not parent or not childName or childName == "" then
 		return nil
 	end
 
-	return areaFolder:FindFirstChild(teamFolderName)
+	return parent:FindFirstChild(childName)
 end
 
 local function FindModelInFolder(folder: Instance?, modelName: string): Instance?
@@ -44,23 +43,13 @@ local function FindModelInFolder(folder: Instance?, modelName: string): Instance
 	return folder:FindFirstChild(modelName)
 end
 
-local function FindFallbackModel(modelName: string): Instance?
-	if modelName == "" then
-		return nil
-	end
-
-	local sourceModel = SoccerCharactersAssets:FindFirstChild(modelName, true)
-
-	return sourceModel
-end
-
 return function(data)
 	if typeof(data) ~= "table" then
 		warn("GetMatchEnemyModel: invalid data payload")
 		return nil
 	end
 
-	local areaFolderName = tostring(data.AssetFolderName or "")
+	local stageFolderName = tostring(data.EnemyStageName or data.StageFolderName or "")
 	local teamFolderName = tostring(data.TeamAssetFolderName or data.TeamFolderName or "")
 	local modelName = tostring(data.ModelName or "")
 	local fallbackModelName = tostring(data.FallbackModelName or "")
@@ -70,37 +59,24 @@ return function(data)
 		return nil
 	end
 
-	local areaFolder = ResolveAreaFolder(areaFolderName)
-	if not areaFolder then
-		warn("GetMatchEnemyModel: missing area folder:", areaFolderName)
-	end
-
-	local teamFolder = ResolveTeamFolder(areaFolder, teamFolderName)
+	local stageFolder = ResolveStageFolder(stageFolderName)
+	local teamFolder = ResolveChildFolder(stageFolder, teamFolderName)
 	local sourceModel = FindModelInFolder(teamFolder, modelName)
 
 	if not sourceModel and fallbackModelName ~= "" then
 		sourceModel = FindModelInFolder(teamFolder, fallbackModelName)
 	end
 
-	-- Legacy fallback: AreaXX/Enemy01
 	if not sourceModel then
-		sourceModel = FindModelInFolder(areaFolder, modelName)
+		sourceModel = FindModelInFolder(stageFolder, modelName)
 	end
 
 	if not sourceModel and fallbackModelName ~= "" then
-		sourceModel = FindModelInFolder(areaFolder, fallbackModelName)
-	end
-
-	if not sourceModel then
-		sourceModel = FindFallbackModel(modelName)
-	end
-
-	if not sourceModel and fallbackModelName ~= "" then
-		sourceModel = FindFallbackModel(fallbackModelName)
+		sourceModel = FindModelInFolder(stageFolder, fallbackModelName)
 	end
 
 	if sourceModel == nil then
-		warn("GetMatchEnemyModel: can't find enemy model:", areaFolderName, teamFolderName, modelName)
+		warn("GetMatchEnemyModel: can't find enemy model:", stageFolderName, teamFolderName, modelName)
 		return nil
 	end
 

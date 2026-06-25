@@ -14,6 +14,7 @@ local TrainingConfig = {
 		DefaultJump = "rbxassetid://507765000",
 		DefaultFall = "rbxassetid://507767968",
 		DefaultShoot = "rbxassetid://90962989306225",
+		DefaultTired = "rbxassetid://134091031290420",
 	},
 
 	-- Visual Parameters

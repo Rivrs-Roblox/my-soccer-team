@@ -372,6 +372,26 @@ local function ResolveQteTierColor(qteTier)
 	return Color3.fromRGB(255, 238, 45)
 end
 
+local function ResolveQteFeedback(qteTier, suppliedMultiplier)
+	local tierName = string.upper(tostring(qteTier or "YELLOW"))
+	local normalizedTier = "Yellow"
+	local label = "GOOD"
+	local color = Color3.fromRGB(255, 221, 58)
+
+	if tierName == "GREEN" or tierName == "PERFECT" or tierName == "EXCELLENT" then
+		normalizedTier = "Green"
+		label = "PERFECT"
+		color = Color3.fromRGB(80, 255, 91)
+	elseif tierName == "RED" or tierName == "BAD" or tierName == "MISS" or tierName == "FAILED" then
+		normalizedTier = "Red"
+		label = "BAD"
+		color = Color3.fromRGB(255, 70, 70)
+	end
+
+	local fallbackMultiplier = MatchConstants.QTE_TIER_MULTIPLIERS[normalizedTier] or 1
+	return label, color, tonumber(suppliedMultiplier) or fallbackMultiplier
+end
+
 local function SetImageTransparencySafe(guiObject, transparency)
 	pcall(function()
 		guiObject.ImageTransparency = transparency
@@ -968,6 +988,8 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 		return
 	end
 
+	self:_closeQteResultReveal(true)
+
 	-- Save the original Size and Position if not already saved
 	if not self._centerPopupOriginalSize then
 		self._centerPopupOriginalSize = popup.Size
@@ -1023,6 +1045,10 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 	popup.TextStrokeTransparency = 0.12
 	popup.Visible = true
 
+	local isQteResultPopup = string.match(text, "^PERFECT%s+x%d+%.%d$") ~= nil
+		or string.match(text, "^GOOD%s+x%d+%.%d$") ~= nil
+		or string.match(text, "^BAD%s+x%d+%.%d$") ~= nil
+
 	if text == "GOAL!" then
 		-- Make it 2.8x bigger and shift position slightly to stay centered
 		popup.Size = UDim2.fromScale(
@@ -1047,6 +1073,28 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 			if goalBurstToken ~= self._centerPopupToken then return end
 			if popup and popup.Visible then
 				self:_spawnUiGoalParticles(popup)
+			end
+		end)
+	elseif isQteResultPopup then
+		popup.Size = UDim2.fromScale(
+			self._centerPopupOriginalSize.X.Scale * 1.85,
+			self._centerPopupOriginalSize.Y.Scale * 1.85
+		)
+		popup.Position = UDim2.fromScale(0.5, 0.19)
+		popup.AnchorPoint = Vector2.new(0.5, 0.5)
+		popup.Rotation = string.find(text, "BAD", 1, true) and 3 or -3
+		popup.Font = Enum.Font.GothamBlack
+		popup.TextScaled = true
+
+		self:_openQteResultReveal(popup, popupColor)
+		self:_spawnUiQteTierParticles(popup, popupColor, 40)
+		local qteBurstToken = myToken
+		task.delay(0.22, function()
+			if qteBurstToken ~= self._centerPopupToken then
+				return
+			end
+			if popup and popup.Visible then
+				self:_spawnUiQteTierParticles(popup, popupColor, 24)
 			end
 		end)
 	else
@@ -1117,6 +1165,10 @@ function MatchUIController:_showCenterPopup(text, color, duration)
 		end
 
 		if popup then
+			if isQteResultPopup then
+				self:_closeQteResultReveal(false)
+			end
+
 			-- GOAL! fades out slower and larger for a dramatic exit
 			local popOutDuration = (text == "GOAL!") and 0.35 or 0.12
 			local popOutEndScale = (text == "GOAL!") and 0.90 or 0.80
@@ -1235,6 +1287,145 @@ function MatchUIController:_spawnUiGoalParticles(popup)
 
 		tween:Play()
 		task.delay(duration + 0.1, function()
+			particle:Destroy()
+		end)
+	end
+end
+
+function MatchUIController:_closeQteResultReveal(immediate)
+	local reveal = self._qteResultReveal
+	if not reveal then
+		return
+	end
+
+	self._qteResultReveal = nil
+	if immediate or not reveal.Root.Parent then
+		reveal.Root:Destroy()
+		return
+	end
+
+	local closeInfo = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	for _, panel in ipairs({ reveal.LeftPanel, reveal.RightPanel }) do
+		TweenService:Create(panel, closeInfo, {
+			Size = UDim2.fromScale(0, 1),
+			BackgroundTransparency = 1,
+		}):Play()
+	end
+	task.delay(0.16, function()
+		if reveal.Root then
+			reveal.Root:Destroy()
+		end
+	end)
+end
+
+function MatchUIController:_openQteResultReveal(popup, tierColor)
+	local parent = popup.Parent
+	if not parent then
+		return
+	end
+
+	local root = Instance.new("Frame")
+	root.Name = "__QteResultReveal"
+	root.AnchorPoint = Vector2.new(0.5, 0.5)
+	root.Position = popup.Position
+	root.Size = UDim2.fromScale(0.86, 0.18)
+	root.BackgroundTransparency = 1
+	root.BorderSizePixel = 0
+	root.ZIndex = math.max(1, popup.ZIndex - 3)
+	root.Parent = parent
+
+	local function createPanel(name, anchorPoint)
+		local panel = Instance.new("Frame")
+		panel.Name = name
+		panel.AnchorPoint = anchorPoint
+		panel.Position = UDim2.fromScale(0.5, 0.5)
+		panel.Size = UDim2.fromScale(0, 1)
+		panel.BackgroundColor3 = tierColor
+		panel.BackgroundTransparency = 1
+		panel.BorderSizePixel = 0
+		panel.ClipsDescendants = true
+		panel.ZIndex = root.ZIndex
+		panel.Parent = root
+
+		return panel
+	end
+
+	local leftPanel = createPanel("LeftReveal", Vector2.new(1, 0.5))
+	local rightPanel = createPanel("RightReveal", Vector2.new(0, 0.5))
+
+	self._qteResultReveal = {
+		Root = root,
+		LeftPanel = leftPanel,
+		RightPanel = rightPanel,
+	}
+
+	local openInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+	for _, panel in ipairs({ leftPanel, rightPanel }) do
+		TweenService:Create(panel, openInfo, {
+			Size = UDim2.fromScale(0.5, 1),
+			BackgroundTransparency = 1,
+		}):Play()
+	end
+end
+
+function MatchUIController:_spawnUiQteTierParticles(popup, tierColor, particleCount)
+	local parent = popup.Parent
+	if not parent then
+		return
+	end
+
+	local basePosition = popup.Position
+	local count = particleCount or 36
+	for i = 1, count do
+		local particle = Instance.new("Frame")
+		particle.Name = "QteResultParticle"
+		particle.AnchorPoint = Vector2.new(0.5, 0.5)
+		particle.BorderSizePixel = 0
+		particle.BackgroundColor3 = (i % 5 == 0) and Color3.fromRGB(255, 255, 255) or tierColor
+		particle.BackgroundTransparency = 0.05
+		particle.ZIndex = math.max(1, popup.ZIndex - 1)
+
+		local width = math.random(7, 16)
+		local height = math.random(7, 20)
+		particle.Size = UDim2.fromOffset(width, height)
+		particle.Rotation = math.random(0, 359)
+		particle.Position = UDim2.new(
+			basePosition.X.Scale,
+			basePosition.X.Offset + math.random(-110, 110),
+			basePosition.Y.Scale,
+			basePosition.Y.Offset + math.random(-20, 20)
+		)
+
+		if i % 3 == 0 then
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(1, 0)
+			corner.Parent = particle
+		end
+
+		particle.Parent = parent
+
+		local angle = ((i - 1) / count) * math.pi * 2 + (math.random() - 0.5) * 0.28
+		local distance = math.random(115, 290)
+		local duration = math.random(65, 105) / 100
+		local targetPosition = UDim2.new(
+			basePosition.X.Scale,
+			particle.Position.X.Offset + math.cos(angle) * distance,
+			basePosition.Y.Scale,
+			particle.Position.Y.Offset + math.sin(angle) * distance + math.random(25, 75)
+		)
+
+		local tween = TweenService:Create(
+			particle,
+			TweenInfo.new(duration, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+			{
+				Position = targetPosition,
+				Rotation = particle.Rotation + math.random(-540, 540),
+				Size = UDim2.fromOffset(0, 0),
+				BackgroundTransparency = 1,
+			}
+		)
+		tween:Play()
+		task.delay(duration + 0.05, function()
 			particle:Destroy()
 		end)
 	end
@@ -1759,86 +1950,11 @@ function MatchUIController:ShowActionBanner(stepPayload)
 	end
 
 	self:_ensureBroadcastHud()
-	if not self._broadcastActionBanner then
-		return
-	end
-
-	stepPayload = typeof(stepPayload) == "table" and stepPayload or {}
-	local action = string.upper(tostring(stepPayload.Action or "ACTION"))
-	local playerValue = formatnumber(tonumber(stepPayload.PreviewValue) or 0)
-	local enemyValue = formatnumber(tonumber(stepPayload.EnemyValue) or 0)
-	local homeCode = self._broadcastHomeCode and self._broadcastHomeCode.Text or "RIV"
-	local awayCode = self._broadcastAwayCode and self._broadcastAwayCode.Text or "OPP"
-
-	self._actionBannerToken = (self._actionBannerToken or 0) + 1
-	self._broadcastActionText.Text = string.format("%s", action)
-	self._broadcastActionText.TextColor3 = Color3.fromRGB(255, 255, 255)
-	self._broadcastStatText.Text = string.format("%s %s  vs  %s %s", homeCode, playerValue, awayCode, enemyValue)
-	self._broadcastStatText.TextColor3 = Color3.fromRGB(255, 255, 255)
-	self._broadcastActionBanner.Visible = true
-	self._broadcastActionBanner.BackgroundTransparency = 0.08
-	self._broadcastActionBanner.Size = UDim2.fromOffset(500, 46)
-
-	local token = self._actionBannerToken
-	UIJuice.PopIn(self._broadcastActionBanner, {
-		StartScale = 0.78,
-		OvershootScale = 1.06,
-		Duration = 0.12,
-		SettleDuration = 0.12,
-	})
-	TweenService:Create(
-		self._broadcastActionBanner,
-		TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{ BackgroundTransparency = 0.02 }
-	):Play()
-	task.delay(0.18, function()
-		if token ~= self._actionBannerToken or not self._broadcastActionBanner then
-			return
-		end
-		TweenService:Create(
-			self._broadcastActionBanner,
-			TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ BackgroundTransparency = 0.08 }
-		):Play()
-	end)
+	return false
 end
 
 function MatchUIController:ShowActionResultBanner(resultPayload)
-	if not BROADCAST_HUD_ENABLED then
-		return false
-	end
-
-	self:_ensureBroadcastHud()
-	if not self._broadcastActionBanner then
-		return false
-	end
-
-	resultPayload = typeof(resultPayload) == "table" and resultPayload or {}
-	local action = string.upper(tostring(resultPayload.Action or "ACTION"))
-	local qteTier = resultPayload.QteTier or resultPayload.Tier or self._lastConfirmedTier or "Yellow"
-	local qteMultiplier = tonumber(resultPayload.QteMultiplier) or 1
-	local finalValue = formatnumber(tonumber(resultPayload.FinalValue or resultPayload.PreviewValue) or 0)
-	local enemyValue = formatnumber(tonumber(resultPayload.EnemyValue) or 0)
-	local homeCode = self._broadcastHomeCode and self._broadcastHomeCode.Text or "RIV"
-	local awayCode = self._broadcastAwayCode and self._broadcastAwayCode.Text or "OPP"
-
-	self._actionBannerToken = (self._actionBannerToken or 0) + 1
-	self._broadcastActionText.Text = string.format("%s %s", action, FormatQteMultiplier(qteMultiplier))
-	self._broadcastActionText.TextColor3 = ResolveQteTierColor(qteTier)
-	self._broadcastStatText.Text = string.format("%s %s  vs  %s %s", homeCode, finalValue, awayCode, enemyValue)
-	self._broadcastStatText.TextColor3 = Color3.fromRGB(255, 255, 255)
-	self._broadcastActionBanner.Visible = true
-	self._broadcastActionBanner.BackgroundTransparency = 0.02
-	self._broadcastActionBanner.Size = UDim2.fromOffset(500, 46)
-
-	UIJuice.PopIn(self._broadcastActionBanner, {
-		StartScale = 0.94,
-		OvershootScale = 1.04,
-		Duration = 0.08,
-		SettleDuration = 0.12,
-	})
-
-	return true
+	return false
 end
 
 function MatchUIController:HideActionBanner(delaySeconds)
@@ -2289,11 +2405,19 @@ function MatchUIController:ShowQteResult(resultPayload)
 		self:HideActionBannerNow()
 	end
 
-	if IsShootAction(resultPayload.Action) then
-		-- Shoot has its own cinematic and final MatchResult UI. Suppress the legacy
-		-- center QTE result popup here so it does not visually stall the shot.
-		self:_showCenterPopup(nil, nil, 0)
+	local qteTier = resultPayload.QteTier or resultPayload.Tier or self._lastConfirmedTier or "Yellow"
+	local feedbackLabel, feedbackColor, feedbackMultiplier = ResolveQteFeedback(qteTier, resultPayload.QteMultiplier)
+	self:_showCenterPopup(
+		string.format("%s x%.1f", feedbackLabel, feedbackMultiplier),
+		feedbackColor,
+		1.25
+	)
 
+	if IsExcellentTier(qteTier) then
+		self:_playExcellentCameraEffect()
+	end
+
+	if IsShootAction(resultPayload.Action) then
 		-- Score increment is deferred to MatchShootDirector which will call
 		-- IncrementMatchScore exactly when the ball reaches the net.
 
@@ -2302,25 +2426,8 @@ function MatchUIController:ShowQteResult(resultPayload)
 
 	if resultPayload.Succeeded then
 		if (resultPayload.AwardedGoals or 0) > 0 then
-			-- The final artist result screen already communicates the goal/win.
-			-- Avoid the old reward text popup because it overlaps the TV HUD and adds lag.
 			self:IncrementBroadcastHomeScore(resultPayload.AwardedGoals or 1)
 			self:StopBroadcastClock()
-			self:_showCenterPopup(nil, nil, 0)
-		else
-			local qteTier = resultPayload.QteTier or resultPayload.Tier or self._lastConfirmedTier
-			local resultText, resultColor = ResolveActionResultText(resultPayload.Action, true, qteTier)
-			if IsExcellentTier(qteTier) then
-				self:_playExcellentCameraEffect()
-			end
-			if not resultBannerShown then
-				self:_showCenterPopup(resultText, resultColor, 0.9)
-			end
-		end
-	else
-		local resultText, resultColor = ResolveActionResultText(resultPayload.Action, false, resultPayload.QteTier or resultPayload.Tier)
-		if not resultBannerShown then
-			self:_showCenterPopup(resultText, resultColor, 0.9)
 		end
 	end
 end
@@ -2534,9 +2641,8 @@ function MatchUIController:ShowMatchResult(success, payload)
 	self:StopBroadcastClock()
 	self._resultPopupToken = (self._resultPopupToken or 0) + 1
 
-	if not success then
-		self:IncrementBroadcastAwayScore(1)
-	end
+	-- A failed action ends the comeback attempt; it is not an opponent goal.
+	-- Preserve the authoritative score shown when the action was resolved.
 
 	-- Prefer the artist-authored GUIMatchBattle.MatchFinished popup. The Roact
 	-- ResultPopup remains only as a compatibility fallback for old test places.

@@ -134,6 +134,25 @@ return function(MatchPresentationController, Context)
 	local DRIBBLE_DODGE_SIDE_DISTANCE_FAIL = 0.85
 	local DRIBBLE_RESOLVE_MAX_SECONDS = 0.92
 	local DRIBBLE_SUCCESS_SETTLE_SECONDS = 0
+	local DRIBBLE_TRICK_FALLBACK_DURATION = 1.25
+	local DRIBBLE_TRICK_MIN_DURATION = 0.85
+	local DRIBBLE_TRICK_MAX_DURATION = 1.65
+	local DRIBBLE_TRICK_ANIMATION_NAMES = {
+		"Dribble - Chop",
+		"Dribble - Elastico",
+		"Dribble - Rainbow Flick",
+		"Dribble - Roulette",
+		"Dribble - Step Over",
+	}
+	-- Fallback AnimationIds used when a character's Animations folder does not
+	-- contain the named dribble tricks (e.g. LocalMatchPlayerProxy).
+	local DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS = {
+		"rbxassetid://74829085391407",
+		"rbxassetid://76410808210220",
+		"rbxassetid://86301950548899",
+		"rbxassetid://115066455423404",
+		"rbxassetid://127808204094011",
+	}
 	local DRIBBLE_FAIL_FRONT_STEAL_OFFSET = 1.35
 	local DRIBBLE_FAIL_BEHIND_PROGRESS = -0.15
 	local DRIBBLE_FAIL_CHASE_MIN_SPEED = 26.0
@@ -169,6 +188,101 @@ return function(MatchPresentationController, Context)
 	local ComputeBallTravelDuration = Utils.ComputeBallTravelDuration
 	local BuildStableSeed = Utils.BuildStableSeed
 	local GetFlatUnitFromLook = Utils.GetFlatUnitFromLook
+	local IsEmbeddedBallVisual = Utils.IsEmbeddedBallVisual
+
+	local function getAnimationFolder(model)
+		return model and (model:FindFirstChild("Animations") or model:FindFirstChild("Animations", true)) or nil
+	end
+
+	local function selectDribbleTrickAnimation(payload, actorModel)
+		local modelName = actorModel and tostring(actorModel.Name) or "(nil model)"
+		
+		local fallbackSeed = BuildStableSeed(
+			payload and payload.SessionId,
+			payload and (payload.StepIndex or payload.Step),
+			payload and (payload.ActorSlot or payload.FromSlot),
+			997
+		)
+		local fallbackId = DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS[
+			(fallbackSeed % #DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS) + 1
+		]
+		print("[DribbleTrick DEBUG] Always using direct AnimationId for trick on:", modelName, "- ID:", fallbackId)
+		return fallbackId
+	end
+
+	local function findEmbeddedBallVisualPart(actorModel)
+		if not actorModel then
+			return nil
+		end
+
+		local fallbackPart = nil
+		for _, descendant in ipairs(actorModel:GetDescendants()) do
+			if descendant:IsA("BasePart") and IsEmbeddedBallVisual(descendant) then
+				if string.lower(descendant.Name) == "ball" then
+					return descendant
+				end
+				fallbackPart = fallbackPart or descendant
+			end
+		end
+		return fallbackPart
+	end
+
+	local DRIBBLE_TRICK_PROXY_NAME = "DribbleTrickEmbeddedBallProxy"
+	local DRIBBLE_TRICK_PROXY_RENDER_BIND = "MatchDribbleTrickEmbeddedBallVisuals"
+
+	local function destroyDribbleTrickEmbeddedBallProxy(self)
+		RunService:UnbindFromRenderStep(DRIBBLE_TRICK_PROXY_RENDER_BIND)
+
+		if self.DribbleTrickEmbeddedBallProxy and self.DribbleTrickEmbeddedBallProxy.Parent then
+			self.DribbleTrickEmbeddedBallProxy:Destroy()
+		end
+
+		self.DribbleTrickEmbeddedBallProxy = nil
+		self.DribbleTrickEmbeddedBallSourcePart = nil
+	end
+
+	local function stripProxyRuntimeObjects(proxyPart)
+		for _, descendant in ipairs(proxyPart:GetDescendants()) do
+			if descendant:IsA("Script")
+				or descendant:IsA("LocalScript")
+				or descendant:IsA("ModuleScript")
+				or descendant:IsA("JointInstance")
+				or descendant:IsA("Constraint")
+			then
+				descendant:Destroy()
+			end
+		end
+	end
+
+	local function createDribbleTrickEmbeddedBallProxy(self, sourcePart)
+		destroyDribbleTrickEmbeddedBallProxy(self)
+
+		if not sourcePart or not sourcePart:IsA("BasePart") then
+			return nil
+		end
+
+		local proxyPart = sourcePart:Clone()
+		proxyPart.Name = DRIBBLE_TRICK_PROXY_NAME
+		stripProxyRuntimeObjects(proxyPart)
+
+		proxyPart.Anchored = true
+		proxyPart.CanCollide = false
+		proxyPart.CanTouch = false
+		proxyPart.CanQuery = false
+		proxyPart.Massless = true
+		proxyPart.CastShadow = true
+		proxyPart.Transparency = 0
+		proxyPart.LocalTransparencyModifier = 0
+		proxyPart.CFrame = sourcePart.CFrame
+		proxyPart:SetAttribute("MatchSpecialEmbeddedBallProxy", true)
+
+		proxyPart.Parent = workspace.CurrentCamera or workspace
+
+		self.DribbleTrickEmbeddedBallProxy = proxyPart
+		self.DribbleTrickEmbeddedBallSourcePart = sourcePart
+
+		return proxyPart
+	end
 
 	-- // [ PASS BLOCK / TURNOVER ] // --
 
@@ -476,6 +590,115 @@ return function(MatchPresentationController, Context)
 		local targets = self:_buildDribbleResolveTargets(payload, actorModel, enemyModel, currentCFrame, enemyRoot, success)
 		local failAttackDirection = nil
 		local enemyStartedBehindCarrier = false
+		local dribbleTrickName = success and selectDribbleTrickAnimation(payload, actorModel) or nil
+		local dribbleTrickTrack = nil
+		local dribbleTrickDuration = nil
+		local dribbleTrickMoveSpeed = nil
+		local embeddedBallPart = nil
+		local usingEmbeddedBall = false
+
+		if dribbleTrickName then
+			-- If dribbleTrickName is a raw AnimationId (fallback path), load directly via Animator.
+			-- Otherwise use the normal named-animation lookup.
+			local isFallbackId = type(dribbleTrickName) == "string"
+				and dribbleTrickName:sub(1, 13) == "rbxassetid://"
+
+			if isFallbackId then
+				print("[DribbleTrick DEBUG] Loading fallback AnimationId directly:", dribbleTrickName)
+				local animator = actorModel and (
+					actorModel:FindFirstChildOfClass("Animator")
+					or actorModel:FindFirstChild("Animator", true)
+				)
+				if animator then
+					local tempAnim = Instance.new("Animation")
+					tempAnim.AnimationId = dribbleTrickName
+					local ok, track = pcall(function()
+						return animator:LoadAnimation(tempAnim)
+					end)
+					tempAnim:Destroy()
+					if ok and track then
+						track:Play(0, 1, 1.0)
+						dribbleTrickTrack = track
+						print("[DribbleTrick DEBUG] Fallback track loaded & played! Length:", track.Length)
+					else
+						warn("[DribbleTrick DEBUG] Fallback LoadAnimation failed:", tostring(track))
+						dribbleTrickName = nil
+					end
+				else
+					warn("[DribbleTrick DEBUG] No Animator found on actorModel - cannot load fallback")
+					dribbleTrickName = nil
+				end
+			else
+				print("[DribbleTrick DEBUG] Calling _playMotionAnimation with:", dribbleTrickName)
+				dribbleTrickTrack = self:_playMotionAnimation(actorModel, dribbleTrickName, 1.0)
+				if not dribbleTrickTrack then
+					warn("[DribbleTrick DEBUG] _playMotionAnimation returned nil for:", dribbleTrickName)
+					dribbleTrickName = nil
+				end
+			end
+
+			if dribbleTrickTrack then
+				local trackLength = tonumber(dribbleTrickTrack.Length) or 0
+				print("[DribbleTrick DEBUG] Track OK! Length:", trackLength, "| IsPlaying:", dribbleTrickTrack.IsPlaying)
+				local dribbleTrickDuration = math.clamp(
+					trackLength > 0 and trackLength or DRIBBLE_TRICK_FALLBACK_DURATION,
+					DRIBBLE_TRICK_MIN_DURATION,
+					DRIBBLE_TRICK_MAX_DURATION
+				)
+				local trickDistance = GetFlatDistance(currentCFrame.Position, targets.ActorTargetPos)
+				local dribbleTrickMoveSpeed = math.max(trickDistance / math.max(dribbleTrickDuration, 0.05), 1)
+
+				embeddedBallPart = findEmbeddedBallVisualPart(actorModel)
+				print("[DribbleTrick DEBUG] embeddedBallPart:", tostring(embeddedBallPart), "| MatchBallController:", tostring(self.MatchBallController))
+				usingEmbeddedBall = embeddedBallPart ~= nil
+					and self.MatchBallController ~= nil
+					and self.MatchBallController.SetBallVisible ~= nil
+				print("[DribbleTrick DEBUG] usingEmbeddedBall:", usingEmbeddedBall)
+
+				if usingEmbeddedBall then
+					if self.MatchBallController.StopFollow then
+						self.MatchBallController:StopFollow()
+					end
+					self.MatchBallController:SetBallVisible(false)
+					self:_setActiveEmbeddedBallVisualModel(actorModel)
+					
+					local sourcePart = embeddedBallPart
+					local proxyPart = createDribbleTrickEmbeddedBallProxy(self, sourcePart)
+					
+					local visibilityToken = (self.DribbleTrickToken or 0) + 1
+					self.DribbleTrickToken = visibilityToken
+
+					RunService:UnbindFromRenderStep(DRIBBLE_TRICK_PROXY_RENDER_BIND)
+					RunService:BindToRenderStep(
+						DRIBBLE_TRICK_PROXY_RENDER_BIND,
+						Enum.RenderPriority.Last.Value + 1000,
+						function()
+							if not self:_isSessionActive(payload.SessionId)
+								or self.DribbleTrickToken ~= visibilityToken
+								or not actorModel
+								or not actorModel.Parent
+								or not sourcePart
+								or not sourcePart.Parent
+								or not proxyPart
+								or not proxyPart.Parent
+							then
+								destroyDribbleTrickEmbeddedBallProxy(self)
+								return
+							end
+
+							proxyPart.CFrame = sourcePart.CFrame
+							proxyPart.Size = sourcePart.Size
+							proxyPart.Color = sourcePart.Color
+							proxyPart.Material = sourcePart.Material
+							proxyPart.Transparency = 0
+							proxyPart.LocalTransparencyModifier = 0
+						end
+					)
+					
+					print("[DribbleTrick DEBUG] Runtime ball hidden, embedded ball proxy activated on:", actorModel.Name)
+				end
+			end
+		end
 
 		if success and shouldBoostDribbleCamera then
 			playActionCameraBoost(self, "Dribble", currentCFrame.Position, targets.ActorTargetPos, getQteTier(payload))
@@ -536,6 +759,26 @@ return function(MatchPresentationController, Context)
 			end
 		end
 
+		local dribbleTrickDuration = nil
+		local dribbleTrickMoveSpeed = nil
+		if dribbleTrickTrack then
+			local trackLength = tonumber(dribbleTrickTrack.Length) or 0
+			dribbleTrickDuration = math.clamp(
+				trackLength > 0 and trackLength or DRIBBLE_TRICK_FALLBACK_DURATION,
+				DRIBBLE_TRICK_MIN_DURATION,
+				DRIBBLE_TRICK_MAX_DURATION
+			)
+
+			local attackDir = self:_getResolveAttackDirection(currentCFrame, targets.ActorLookPos)
+			if attackDir and attackDir.Magnitude > 0.001 then
+				local addedDistance = dribbleTrickDuration * 3
+				targets.ActorTargetPos = targets.ActorTargetPos + (attackDir.Unit * addedDistance)
+			end
+
+			local trickDistance = GetFlatDistance(currentCFrame.Position, targets.ActorTargetPos)
+			dribbleTrickMoveSpeed = math.max(trickDistance / math.max(dribbleTrickDuration, 0.05), 1)
+		end
+
 		local finalActorPos, finalEnemyPos = self:_runMovementSequence(payload, {
 			SpeedGroupName = "Resolve",
 			SpeedActionName = "Dribble",
@@ -551,17 +794,33 @@ return function(MatchPresentationController, Context)
 				return currentActorPos
 			end,
 			HoldEnemyUntilActorReady = false,
-			FollowBall = true,
+			FollowBall = not usingEmbeddedBall,
 			ActorRunAnimation = "Run",
 			ActorRunSpeed = success and 1.08 or nil,
+			ActorMoveSpeed = dribbleTrickMoveSpeed,
 			EnemyRunAnimation = "Run",
 			EnemyRunSpeed = (not success and enemyStartedBehindCarrier) and 1.18 or nil,
-			ActorSprintAfterBeat = success,
+			ActorSprintAfterBeat = success and dribbleTrickName == nil,
 			EnemyAdaptiveSprint = false,
 			EnemySpeedResolver = failEnemySpeedResolver,
 			BreakOnActorReached = success,
-			MaxDuration = success and DRIBBLE_RESOLVE_MAX_SECONDS or (enemyStartedBehindCarrier and 1.28 or 1.02),
+			MaxDuration = dribbleTrickDuration and (dribbleTrickDuration + 0.15)
+				or (success and DRIBBLE_RESOLVE_MAX_SECONDS or (enemyStartedBehindCarrier and 1.28 or 1.02)),
 		})
+
+		if usingEmbeddedBall then
+			local handoffPart = embeddedBallPart and embeddedBallPart.Parent and embeddedBallPart
+				or findEmbeddedBallVisualPart(actorModel)
+			if handoffPart and self.MatchBallController.SetBallDriverWorldCFrame then
+				self.MatchBallController:SetBallDriverWorldCFrame(handoffPart.CFrame)
+			end
+
+			destroyDribbleTrickEmbeddedBallProxy(self)
+			self:_clearActiveEmbeddedBallVisualModel(actorModel)
+
+			self.MatchBallController:SetBallVisible(true)
+			self:_beginBallFollow(actorModel)
+		end
 
 		finalActorPos = GetGroundedPosition(finalActorPos, actorModel)
 		finalEnemyPos = GetGroundedPosition(finalEnemyPos, enemyModel)

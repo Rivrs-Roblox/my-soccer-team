@@ -62,7 +62,7 @@ function Teams(_, hooks)
 			Pass = string.format("%.1f", stats.Pass),
 			Shoot = string.format("%.1f", stats.Shoot),
 			Dribble = string.format("%.1f", stats.Dribble),
-			Name = templateData.Name,
+			Name = templateData.DisplayName or templateData.Name,
 			Stars = charData.Level or 1,
 			Color = Color3.fromHex("4688eb"),
 			FieldStrokeColor = Color3.fromHex("49b9ff"),

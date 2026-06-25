@@ -177,12 +177,26 @@ local function BuildPlayerResultScore(match, didWin: boolean, playerGoals: numbe
 	return { Home = oGoals, Away = pGoals }
 end
 
-local function ResolveRoundGoalTarget(match)
+local function ResolveRoundGoalTarget(match, seed: number?)
 	local roundGoalTargets = TournamentConfig.LiveMatch.RoundGoalTargets
 	local target = roundGoalTargets and roundGoalTargets[tostring(match and match.RoundId or "")]
 	if target then
 		local initialPlayer = tonumber(target.Player) or 0
 		local initialOpponent = tonumber(target.Opponent) or 0
+
+		if target.PossibleScores then
+			local count = #target.PossibleScores
+			if count > 0 then
+				local index = 1
+				if seed then
+					index = (NormalizeSeed(seed) % count) + 1
+				end
+				local picked = target.PossibleScores[index]
+				initialPlayer = picked.Player
+				initialOpponent = picked.Opponent
+			end
+		end
+
 		local requiredPlayerGoals = math.max(1, tonumber(target.RequiredPlayerGoals) or (initialOpponent - initialPlayer + 1))
 
 		return {
@@ -410,7 +424,7 @@ end
 -- Multi-leg aggregate helpers
 
 function TournamentRules.InitializeRoundAggregate(match, seed: number)
-	local fixedTarget = ResolveRoundGoalTarget(match)
+	local fixedTarget = ResolveRoundGoalTarget(match, seed)
 	if fixedTarget then
 		match.AggregatePlayer = fixedTarget.Player
 		match.AggregateOpponent = fixedTarget.Opponent

@@ -175,9 +175,25 @@ function MatchPresentationController:_pauseRigAnimation(model, speedOverride)
 	end
 
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		-- Keep the current track alive; speed 0 holds the pose, QTE can pass slowmo speed.
-		-- Do not Stop(0), because stopping resets many rigs back to idle/T-pose.
-		track:AdjustSpeed(trackSpeed)
+		local animName = track.Animation and track.Animation.Name or ""
+		local baseSpeed = track:GetAttribute("BaseSpeed") or 1.0
+		track:AdjustSpeed(baseSpeed * trackSpeed)
+
+		local isLocomotion = animName == "Run"
+			or animName == "Running"
+			or animName == "Jogging"
+			or animName == "Jog"
+			or animName == "Walk"
+			or animName == "Sprint"
+			or animName == "Dribble"
+			or animName == "StrafeLeft"
+			or animName == "StrafeRight"
+
+		if isLocomotion and trackSpeed > 0 then
+			pcall(function()
+				track:AdjustWeight(1, 0)
+			end)
+		end
 	end
 end
 
@@ -186,7 +202,8 @@ function MatchPresentationController:_resumeRigAnimation(model)
 	local animator = model:FindFirstChildWhichIsA("Animator", true)
 	if not animator then return end
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		track:AdjustSpeed(1)
+		local baseSpeed = track:GetAttribute("BaseSpeed") or 1.0
+		track:AdjustSpeed(baseSpeed)
 	end
 end
 

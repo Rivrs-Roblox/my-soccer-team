@@ -162,7 +162,7 @@ function LeftFrame(_, hooks)
 				Position = UDim2.fromScale(0.5, 0.5),
 				BackgroundColor3 = Color3.fromHex("ffffff"),
 				ZIndex = 2,
-				Image = "rbxassetid://77407958918252",
+				Image = "rbxassetid://117691756722222",
 				Size = UDim2.fromScale(1, 1),
 			}, { Ratio = Roact.createElement("UIAspectRatioConstraint", {}) }),
 			Effect = Roact.createElement("ImageLabel", {
