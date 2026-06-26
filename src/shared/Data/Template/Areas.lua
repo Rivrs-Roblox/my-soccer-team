@@ -9,28 +9,28 @@ return table.freeze({
 	["Area02"] = {
 		Id = "Area02",
 		Name = "Amateur League",
-		Price = 5_000,
+		Price = 7_000,
 		Order = 2,
 	},
 
 	["Area03"] = {
 		Id = "Area03",
 		Name = "Pro League",
-		Price = 277_000_000,
+		Price = 850_000,
 		Order = 3,
 	},
 
 	["Area04"] = {
 		Id = "Area04",
 		Name = "World League",
-		Price = 4_000_000_000_000,
+		Price = 12_500_000,
 		Order = 4,
 	},
 
 	["Area05"] = {
 		Id = "Area05",
 		Name = "Legend League",
-		Price = 75_000_000_000_000_000,
+		Price = 200_000_000,
 		Order = 5,
 	},
 })
