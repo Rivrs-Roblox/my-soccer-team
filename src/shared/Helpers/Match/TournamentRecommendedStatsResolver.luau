@@ -7,9 +7,15 @@ local MatchAreaConfig = require(ReplicatedStorage.Shared.Data.Match.MatchAreaCon
 local TournamentRecommendedStatsResolver = {}
 
 local DEFAULT_AREA_ID = "Area01"
-local FINAL_ROUND_ID = "Final"
 local FIELD_STEP_INDEX = 4
 local SHOOT_STEP_INDEX = 5
+
+local ROUND_PROGRESSION = table.freeze({
+	"RoundOf16",
+	"QuarterFinal",
+	"SemiFinal",
+	"Final",
+})
 
 export type RecommendedStats = {
 	AreaId: string,
@@ -51,15 +57,32 @@ local function getStepValue(steps: any, index: number): number?
 	return tonumber(step)
 end
 
-function TournamentRecommendedStatsResolver.GetFinalAreaStats(area: any): RecommendedStats
+function TournamentRecommendedStatsResolver.GetFinalAreaStats(area: any, playerData: any?): RecommendedStats
 	local areaId = getAreaId(area)
 	local areaConfig = MatchAreaConfig[areaId] or MatchAreaConfig[DEFAULT_AREA_ID]
-	local roundEnemySteps = areaConfig and areaConfig.RoundEnemySteps
-	local finalSteps = if isTable(roundEnemySteps) then roundEnemySteps[FINAL_ROUND_ID] else nil
-	finalSteps = finalSteps or (areaConfig and areaConfig.EnemySteps)
 
-	local fieldValue = getStepValue(finalSteps, FIELD_STEP_INDEX) or 0
-	local shootValue = getStepValue(finalSteps, SHOOT_STEP_INDEX) or fieldValue
+	local targetRoundId = "RoundOf16"
+	if playerData and playerData.HighestRoundsWon then
+		local highestWon = playerData.HighestRoundsWon[areaId]
+		print("[StatsResolver DEBUG] areaId:", areaId, "highestWon:", highestWon)
+		if highestWon then
+			local index = table.find(ROUND_PROGRESSION, highestWon)
+			if index then
+				targetRoundId = ROUND_PROGRESSION[index + 1] or "Final"
+			end
+		end
+	else
+		print("[StatsResolver DEBUG] No playerData or HighestRoundsWon map provided for area:", areaId)
+	end
+
+	print("[StatsResolver DEBUG] targetRoundId:", targetRoundId)
+
+	local roundEnemySteps = areaConfig and areaConfig.RoundEnemySteps
+	local targetSteps = if isTable(roundEnemySteps) then roundEnemySteps[targetRoundId] else nil
+	targetSteps = targetSteps or (areaConfig and areaConfig.EnemySteps)
+
+	local fieldValue = getStepValue(targetSteps, FIELD_STEP_INDEX) or 0
+	local shootValue = getStepValue(targetSteps, SHOOT_STEP_INDEX) or fieldValue
 
 	return {
 		AreaId = areaId,
