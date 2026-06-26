@@ -25,19 +25,40 @@ function BattleZoneRecommendedStatsPresenter:_renderArea(area: any)
 		return
 	end
 
-	self._view:Render(RecommendedStatsResolver.GetFinalAreaStats(area))
+	self._renderToken = (self._renderToken or 0) + 1
+	local token = self._renderToken
+
+	task.spawn(function()
+		local DataService = Knit.GetService("DataService")
+		local Players = game:GetService("Players")
+		-- ponytail: fetch live data to check HighestRoundsWon progress
+		local success, playerData = DataService:GetData(Players.LocalPlayer):await()
+
+		if token ~= self._renderToken or not self._view then
+			return
+		end
+
+		self._view:Render(RecommendedStatsResolver.GetFinalAreaStats(area, success and playerData))
+	end)
 end
 
 function BattleZoneRecommendedStatsPresenter:Init()
 	self._view = self._trove:Add(BattleZoneRecommendedStatsView.new())
 
 	local TeleportController = Knit.GetController("TeleportController")
+	local TournamentService = Knit.GetService("TournamentService")
 
 	if TeleportController.AreaChanged then
 		self._trove:Add(TeleportController.AreaChanged:Connect(function(area, areaId)
 			self:_renderArea(areaId or area)
 		end))
 	end
+
+	-- ponytail: update billboard whenever tournament bracket progression updates
+	self._trove:Add(TournamentService.TournamentUpdated:Connect(function()
+		local currentArea = TeleportController:GetCurrentAreaId() or TeleportController:GetCurrentArea() or "Area01"
+		self:_renderArea(currentArea)
+	end))
 
 	if TeleportController.GetCurrentArea then
 		local currentArea = TeleportController:GetCurrentArea()

@@ -138,6 +138,9 @@ return table.freeze({
 
 	["ExitGiftClaimed"] = false,
 
+	-- Highest round won per area
+	["HighestRoundsWon"] = {},
+
 	-- stats character
 	["Stats"] = {
 		["Shoot"] = 20,

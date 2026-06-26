@@ -173,14 +173,51 @@ function TournamentService:CancelPendingStart(player: Player, options: any?)
 	return true
 end
 
+local ROUND_ORDER = table.freeze({
+	RoundOf16 = 1,
+	QuarterFinal = 2,
+	SemiFinal = 3,
+	Final = 4,
+})
+
+function TournamentService:_updateHighestRoundWon(player: Player, areaId: string, roundId: string)
+	local DataService = Knit.GetService("DataService")
+	local data = DataService:GetData(player) :: any
+	if not data then
+		return
+	end
+
+	-- ponytail: dynamic initialization for legacy players
+	if not data.HighestRoundsWon then
+		data.HighestRoundsWon = {}
+	end
+
+	local currentHighest = data.HighestRoundsWon[areaId]
+	local currentRank = currentHighest and ROUND_ORDER[currentHighest] or 0
+	local newRank = ROUND_ORDER[roundId] or 0
+
+	print("[TournamentService DEBUG] _updateHighestRoundWon player:", player.Name, "area:", areaId, "roundId:", roundId, "currentHighest:", currentHighest, "newRank:", newRank, "currentRank:", currentRank)
+
+	if newRank > currentRank then
+		data.HighestRoundsWon[areaId] = roundId
+		print("[TournamentService DEBUG] Updated HighestRoundsWon for", player.Name, "area", areaId, "to", roundId)
+	end
+end
+
 function TournamentService:ApplyMatchResult(player: Player, didWin: boolean, playerGoals: number?, opponentGoals: number?)
 	local state = sessionsByPlayer[player]
 	if not state then
 		return nil
 	end
 
+	local currentMatch = TournamentRules.GetCurrentPlayerMatch(state)
+	local roundId = currentMatch and currentMatch.RoundId
+
 	if didWin then
 		state = TournamentRules.AdvanceAfterWin(state, playerGoals, opponentGoals)
+		if roundId and state.LegResult ~= "LegWin" then
+			self:_updateHighestRoundWon(player, state.AreaId, roundId)
+		end
 	else
 		state = TournamentRules.ApplyPlayerLoss(state, playerGoals, opponentGoals)
 	end
