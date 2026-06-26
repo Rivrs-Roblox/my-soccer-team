@@ -21,13 +21,13 @@ TournamentRewardConfig.LeagueBaseByKey = table.freeze({
 	Legend = 13300000,
 })
 
-TournamentRewardConfig.QteMultiplierByStep = table.freeze({
-	[1] = 1,
-	[2] = 1,
-	[3] = 1,
-	[4] = 1,
-	[5] = 1,
-})
+-- TournamentRewardConfig.QteMultiplierByStep = table.freeze({
+-- 	[1] = 1,
+-- 	[2] = 2,
+-- 	[3] = 4,
+-- 	[4] = 8,
+-- 	[5] = 16,
+-- })
 
 TournamentRewardConfig.RoundMultiplierById = table.freeze({
 	RoundOf16 = 1,

@@ -984,10 +984,30 @@ end
 
 -- c:\Users\akama\wkspaces\RIVRS Indonesia-MySoccerTeam\Environments\Development\src\server\Services\MatchService.luau
 
-function MatchService:_calculateMatchRewardPreview(session)
+function MatchService:_calculateMatchRewardPreview(player, session)
 	local payload = session and session.Payload or {}
 	local tournamentContext = payload.Tournament or {}
 	local successfulSteps = session and session.SuccessfulQteSteps or {}
+
+	local data = player and DataService:GetData(player)
+	local gamepasses = data and type(data.Gamepasses) == "table" and data.Gamepasses or {}
+	
+	local hasVip = false
+	local hasDoubleWins = false
+	for _, v in pairs(gamepasses) do
+		if v == "VIP" then hasVip = true end
+		if v == "x2 Wins" then hasDoubleWins = true end
+	end
+
+	if not hasDoubleWins and data and data.Inventory and type(data.Inventory.ActiveBoosts) == "table" then
+		for _, item in pairs(data.Inventory.ActiveBoosts) do
+			local itemName = (typeof(item) == "table" and item.Name) or item
+			if itemName == "x2 Wins Boost" then
+				hasDoubleWins = true
+				break
+			end
+		end
+	end
 
 	local rewardWins = TournamentRewardCalculator.CalculateTotalReward({
 		AreaId = tournamentContext.AreaId or payload.AreaId,
@@ -996,15 +1016,37 @@ function MatchService:_calculateMatchRewardPreview(session)
 		RoundIndex = tournamentContext.RoundIndex,
 		RequiredPlayerGoals = tournamentContext.RequiredPlayerGoals,
 		SuccessfulQteSteps = successfulSteps,
+		HasDoubleWins = hasDoubleWins,
+		HasVipBattlePass = hasVip,
 	})
 
 	return math.max(0, math.floor(tonumber(rewardWins) or 0))
 end
 
-function MatchService:_calculateGoalReward(session)
+function MatchService:_calculateGoalReward(player, session)
 	local payload = session and session.Payload or {}
 	local tournamentContext = payload.Tournament or {}
 	local successfulSteps = session and session.SuccessfulQteSteps or {}
+
+	local data = player and DataService:GetData(player)
+	local gamepasses = data and type(data.Gamepasses) == "table" and data.Gamepasses or {}
+	
+	local hasVip = false
+	local hasDoubleWins = false
+	for _, v in pairs(gamepasses) do
+		if v == "VIP" then hasVip = true end
+		if v == "x2 Wins" then hasDoubleWins = true end
+	end
+
+	if not hasDoubleWins and data and data.Inventory and type(data.Inventory.ActiveBoosts) == "table" then
+		for _, item in pairs(data.Inventory.ActiveBoosts) do
+			local itemName = (typeof(item) == "table" and item.Name) or item
+			if itemName == "x2 Wins Boost" then
+				hasDoubleWins = true
+				break
+			end
+		end
+	end
 
 	local rewardWins = TournamentRewardCalculator.CalculatePerGoalReward({
 		AreaId = tournamentContext.AreaId or payload.AreaId,
@@ -1013,8 +1055,11 @@ function MatchService:_calculateGoalReward(session)
 		RoundIndex = tournamentContext.RoundIndex,
 		RequiredPlayerGoals = tournamentContext.RequiredPlayerGoals,
 		SuccessfulQteSteps = successfulSteps,
+		HasDoubleWins = hasDoubleWins,
+		HasVipBattlePass = hasVip,
 	})
 
+	print(`[MatchService DEBUG] _calculateGoalReward -> hasVip: {hasVip}, hasDoubleWins: {hasDoubleWins}, rewardWins: {rewardWins}`)
 	return math.max(0, math.floor(tonumber(rewardWins) or 0))
 end
 
@@ -1049,8 +1094,8 @@ function MatchService:_awardStepProgress(player, session, resultPayload)
 		resultPayload.ScorerDisplayName = tostring(resultPayload.ActorDisplayName or (actorEntry and actorEntry.DisplayName) or player.Name)
 		resultPayload.ScorerActorType = actorEntry and actorEntry.ActorType or nil
 		resultPayload.MatchStartMinute = introData and tonumber(introData.MatchMinute) or nil
-		resultPayload.MatchRewardPreviewWins = self:_calculateMatchRewardPreview(session)
-		local goalRewardWins = if self:_usesPerGoalTournamentReward(session) then self:_calculateGoalReward(session) else 0
+		resultPayload.MatchRewardPreviewWins = self:_calculateMatchRewardPreview(player, session)
+		local goalRewardWins = if self:_usesPerGoalTournamentReward(session) then self:_calculateGoalReward(player, session) else 0
 		resultPayload.GoalRewardWins = goalRewardWins
 
 		resultPayload.AwardedWins = goalRewardWins
@@ -1077,6 +1122,7 @@ function MatchService:_grantPendingGoalReward(player, session)
 		local successWins = pcall(function()
 			return DataService:ChangeValue(player, "Wins", winsToGrant, true)
 		end)
+		print(`[MatchService] Granting {winsToGrant} Wins for Goal!`)
 		if not successWins then
 			warn("[MatchService] Failed to grant pending goal reward Wins=" .. tostring(winsToGrant))
 		end
@@ -1111,8 +1157,9 @@ function MatchService:_grantMatchReward(player, session, reason)
 		return 0
 	end
 
+	print(`[MatchService] Granting {rewardWins} Wins for Match Completion!`)
 	local successWins = pcall(function()
-		return DataService:ChangeValue(player, "Wins", rewardWins, true)
+		return DataService:ChangeValue(player, "Wins", rewardWins, false)
 	end)
 
 	if not successWins then

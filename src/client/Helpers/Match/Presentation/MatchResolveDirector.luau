@@ -206,7 +206,6 @@ return function(MatchPresentationController, Context)
 		local fallbackId = DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS[
 			(fallbackSeed % #DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS) + 1
 		]
-		print("[DribbleTrick DEBUG] Always using direct AnimationId for trick on:", modelName, "- ID:", fallbackId)
 		return fallbackId
 	end
 
@@ -604,7 +603,6 @@ return function(MatchPresentationController, Context)
 				and dribbleTrickName:sub(1, 13) == "rbxassetid://"
 
 			if isFallbackId then
-				print("[DribbleTrick DEBUG] Loading fallback AnimationId directly:", dribbleTrickName)
 				local animator = actorModel and (
 					actorModel:FindFirstChildOfClass("Animator")
 					or actorModel:FindFirstChild("Animator", true)
@@ -619,27 +617,21 @@ return function(MatchPresentationController, Context)
 					if ok and track then
 						track:Play(0, 1, 1.0)
 						dribbleTrickTrack = track
-						print("[DribbleTrick DEBUG] Fallback track loaded & played! Length:", track.Length)
 					else
-						warn("[DribbleTrick DEBUG] Fallback LoadAnimation failed:", tostring(track))
 						dribbleTrickName = nil
 					end
 				else
-					warn("[DribbleTrick DEBUG] No Animator found on actorModel - cannot load fallback")
 					dribbleTrickName = nil
 				end
 			else
-				print("[DribbleTrick DEBUG] Calling _playMotionAnimation with:", dribbleTrickName)
 				dribbleTrickTrack = self:_playMotionAnimation(actorModel, dribbleTrickName, 1.0)
 				if not dribbleTrickTrack then
-					warn("[DribbleTrick DEBUG] _playMotionAnimation returned nil for:", dribbleTrickName)
 					dribbleTrickName = nil
 				end
 			end
 
 			if dribbleTrickTrack then
 				local trackLength = tonumber(dribbleTrickTrack.Length) or 0
-				print("[DribbleTrick DEBUG] Track OK! Length:", trackLength, "| IsPlaying:", dribbleTrickTrack.IsPlaying)
 				local dribbleTrickDuration = math.clamp(
 					trackLength > 0 and trackLength or DRIBBLE_TRICK_FALLBACK_DURATION,
 					DRIBBLE_TRICK_MIN_DURATION,
@@ -649,11 +641,9 @@ return function(MatchPresentationController, Context)
 				local dribbleTrickMoveSpeed = math.max(trickDistance / math.max(dribbleTrickDuration, 0.05), 1)
 
 				embeddedBallPart = findEmbeddedBallVisualPart(actorModel)
-				print("[DribbleTrick DEBUG] embeddedBallPart:", tostring(embeddedBallPart), "| MatchBallController:", tostring(self.MatchBallController))
 				usingEmbeddedBall = embeddedBallPart ~= nil
 					and self.MatchBallController ~= nil
 					and self.MatchBallController.SetBallVisible ~= nil
-				print("[DribbleTrick DEBUG] usingEmbeddedBall:", usingEmbeddedBall)
 
 				if usingEmbeddedBall then
 					if self.MatchBallController.StopFollow then
@@ -694,8 +684,6 @@ return function(MatchPresentationController, Context)
 							proxyPart.LocalTransparencyModifier = 0
 						end
 					)
-					
-					print("[DribbleTrick DEBUG] Runtime ball hidden, embedded ball proxy activated on:", actorModel.Name)
 				end
 			end
 		end

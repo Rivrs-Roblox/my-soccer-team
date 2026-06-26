@@ -492,22 +492,6 @@ return function(MatchPresentationController, Context)
 		end)
 	end
 
-	local function debugPrintPlayingAnimations(model, prefix)
-		if not model then return end
-		local animator = model:FindFirstChildWhichIsA("Animator", true)
-		if not animator then return end
-		local tracks = animator:GetPlayingAnimationTracks()
-		print("----- [QTE ANIM DEBUG]", prefix, model.Name, "-----")
-		if #tracks == 0 then
-			print("   -> (No tracks playing)")
-		end
-		for _, track in ipairs(tracks) do
-			local animName = track.Animation and track.Animation.Name or "Unknown"
-			print(string.format("   -> Anim: %s | Speed: %.2f | Weight: %.2f | TimePos: %.2f | Priority: %s",
-				animName, track.Speed, track.WeightCurrent, track.TimePosition, tostring(track.Priority)))
-		end
-	end
-
 	function MatchPresentationController:_freezeActorsForPreQte(actorModel, enemyModel, payload)
 		if self.IsPreQteFrozen then
 			return
@@ -620,9 +604,6 @@ return function(MatchPresentationController, Context)
 			if not self.IsPreQteFrozen then return end
 
 			self:_setTimeScale(QTE_SLOWMO_TIME_SCALE)
-
-			debugPrintPlayingAnimations(actorModel, "ACTOR")
-			debugPrintPlayingAnimations(enemyModel, "ENEMY")
 
 			if self.MatchActorRuntimeController and self.MatchActorRuntimeController.SetLocalMatchTimeScale then
 				self.MatchActorRuntimeController:SetLocalMatchTimeScale(LocalPlayer, QTE_SLOWMO_TIME_SCALE, QTE_SLOWMO_ANIMATION_SPEED)
