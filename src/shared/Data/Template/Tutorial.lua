@@ -58,31 +58,20 @@ return table.freeze({
 		Target = 50,
 	},
 	[7] = {
-		Text = "Go and win a match!",
-		ArrowTarget = function()
-			return workspace
-				:WaitForChild("Map")
-				:WaitForChild("BattleZone")
-				:WaitForChild("BattleZone")
-				:WaitForChild("Pivot")
-		end,
-		Target = 0,
-	},
-	[8] = {
 		Text = "Buy player packs to unlock more player. Better player will apply better stats boost during matches!",
 		ArrowTarget = function()
 			return nil
 		end,
 		Target = 1,
 	},
-	[9] = {
+	[8] = {
 		Text = "Equip your new player!",
 		ArrowTarget = function()
 			return nil
 		end,
 		Target = 0,
 	},
-	[10] = {
+	[9] = {
 		Text = "Buy accessories to boost your player stats during matches!",
 		ArrowTarget = function()
 			return workspace
@@ -93,7 +82,7 @@ return table.freeze({
 		end,
 		Target = 1,
 	},
-	[11] = {
+	[10] = {
 		Text = "Equip your accessories!",
 		ArrowTarget = function()
 			return nil

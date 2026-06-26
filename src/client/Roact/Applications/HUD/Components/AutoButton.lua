@@ -8,6 +8,9 @@ local RoactSpring = require(ReplicatedStorage.Packages.RoactSpring)
 local Helpers = ReplicatedStorage.Shared.Helpers
 local Size = require(Helpers.Size)
 
+local Colors = require(ReplicatedStorage.Shared.Data.Colors)
+local RoduxHooks = require(ReplicatedStorage.Packages.roduxhooks)
+
 local AutoController = Knit.GetController("AutoController")
 
 local function AutoButton(props, hooks)
@@ -21,6 +24,15 @@ local function AutoButton(props, hooks)
 			rotation2 = 0,
 		}
 	end)
+
+	local AutoReducer = RoduxHooks.useSelector(hooks, function(state)
+		return state.AutoReducer
+	end)
+
+	local isAutoTrainingOn = AutoReducer.AutoTraining and AutoReducer.AutoTrainingCurrent == actionName
+
+	local gradientColors = isAutoTrainingOn and Colors.Gradients.AutoTrainOn or Colors.Gradients.AutoTrainOff
+	local strokeColor = isAutoTrainingOn and Colors.Stroke.AutoTrainOn or Colors.Stroke.AutoTrainOff
 
 	return Roact.createElement("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -41,7 +53,11 @@ local function AutoButton(props, hooks)
 			BackgroundColor3 = Color3.fromHex("ffffff"),
 
 			[Roact.Event.MouseButton1Click] = function()
-				AutoController:RequestAutoTraining(actionName)
+				if isAutoTrainingOn then
+					AutoController:RequestStopTraining()
+				else
+					AutoController:RequestAutoTraining(actionName)
+				end
 			end,
 
 			[Roact.Event.MouseEnter] = function()
@@ -102,8 +118,8 @@ local function AutoButton(props, hooks)
 			}),
 			UIGradient = Roact.createElement("UIGradient", {
 				Color = ColorSequence.new({
-					ColorSequenceKeypoint.new(0, Color3.fromHex("a53838")),
-					ColorSequenceKeypoint.new(1, Color3.fromHex("3d1212")),
+					ColorSequenceKeypoint.new(0, gradientColors.startColor),
+					ColorSequenceKeypoint.new(1, gradientColors.endColor),
 				}),
 				Rotation = 90,
 			}),
@@ -111,7 +127,7 @@ local function AutoButton(props, hooks)
 				CornerRadius = UDim.new(0, 6),
 			}),
 			UIStroke = Roact.createElement("UIStroke", {
-				Color = Color3.fromHex("d92c2c"),
+				Color = strokeColor,
 				Thickness = 2,
 			}),
 			Icon = Roact.createElement("ImageLabel", {

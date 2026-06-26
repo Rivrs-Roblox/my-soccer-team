@@ -69,6 +69,14 @@ return table.freeze({
 			startColor = Color3.fromHex("e0b33a"),
 			endColor = Color3.fromHex("8f5f12"),
 		},
+		AutoTrainOn = {
+			startColor = Color3.fromHex("74e654"),
+			endColor = Color3.fromHex("045400"),
+		},
+		AutoTrainOff = {
+			startColor = Color3.fromHex("a53838"),
+			endColor = Color3.fromHex("3d1212"),
+		},
 	},
 
 	Stroke = {
@@ -80,6 +88,8 @@ return table.freeze({
 		["Gold Legendary"] = Color3.fromHex("e4a327"),
 		Mythical = Color3.fromHex("e13b3e"),
 		Exclusive = Color3.fromHex("b9861b"),
+		AutoTrainOn = Color3.fromHex("33ea00"),
+		AutoTrainOff = Color3.fromHex("d92c2c"),
 	},
 
 	-- Names

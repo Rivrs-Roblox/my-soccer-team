@@ -131,6 +131,12 @@ local MatchAnimationConfig = {
 		["Shoot - Special"] = false,
 		Pass = false,
 
+		["Dribble - Chop"] = false,
+		["Dribble - Elastico"] = false,
+		["Dribble - Rainbow Flick"] = false,
+		["Dribble - Roulette"] = false,
+		["Dribble - Step Over"] = false,
+
 		Win = false,
 		Win1 = false,
 		Win2 = false,

@@ -371,6 +371,23 @@ function TrainingService:StartTraining(
 					if tickCounter >= TICK_INTERVAL then
 						tickCounter = 0
 						-- Normal 1s tick logic
+
+						-- Auto adjust level for Auto Training
+						if session.IsAuto then
+							local bestLevel = 1
+							for l = 3, 1, -1 do
+								local c = PlayerStatsService:GetStaminaCostPerTick(player, session.AreaId, session.StatType, l) or 0
+								if currentMaxStamina >= c then
+									bestLevel = l
+									break
+								end
+							end
+							if session.Level ~= bestLevel then
+								self:SetTrainingLevel(player, bestLevel)
+								cost = PlayerStatsService:GetStaminaCostPerTick(player, session.AreaId, session.StatType, session.Level) or 0
+							end
+						end
+
 						if session.IsResting then
 							if session.MaxStamina and session.MaxStamina > 0 and session.MaxStamina ~= currentMaxStamina then
 								local ratio = session.TempStamina / session.MaxStamina
@@ -510,8 +527,10 @@ function TrainingService:SetTrainingLevel(player: Player, level: number)
 			local currentStats = PlayerStatsService:GetStats(player)
 			local maxStamina = currentStats.Stamina or 100
 
-			if maxStamina < cost and session.StatType ~= "Stamina" then
-				return false, "Not enough stamina for this level!"
+			if maxStamina < cost then
+				if session.IsAuto or session.StatType ~= "Stamina" then
+					return false, "Not enough stamina for this level!"
+				end
 			end
 
 			session.Level = level

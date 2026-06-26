@@ -32,7 +32,7 @@ local MatchController
 
 -- Services
 local DataService
-local MatchService
+local TournamentService
 local PlayerStatsService
 local CoachesService
 local GachaService
@@ -363,7 +363,7 @@ function TutorialController:UpdateUIHighlight()
 
 			UIHighlighter.StopAll()
 		end)
-	elseif currentTutorialStep == 8 then
+	elseif currentTutorialStep == 7 then
 		local packButton = playerGui
 			:WaitForChild("GameScreenGui")
 			:WaitForChild("HUD")
@@ -380,7 +380,7 @@ function TutorialController:UpdateUIHighlight()
 			:WaitForChild("1")
 
 		task.spawn(function()
-			while currentTutorialStep == 8 do
+			while currentTutorialStep == 7 do
 				local currentUI = Store:getState().UIReducer.CurrentUI
 
 				if currentUI == nil or currentUI == "" then
@@ -396,7 +396,7 @@ function TutorialController:UpdateUIHighlight()
 
 			UIHighlighter.StopAll()
 		end)
-	elseif currentTutorialStep == 9 then
+	elseif currentTutorialStep == 8 then
 		local teamButton = playerGui
 			:WaitForChild("GameScreenGui")
 			:WaitForChild("HUD")
@@ -412,7 +412,7 @@ function TutorialController:UpdateUIHighlight()
 			:WaitForChild("EquipBest")
 
 		task.spawn(function()
-			while currentTutorialStep == 9 do
+			while currentTutorialStep == 8 do
 				local currentUI = Store:getState().UIReducer.CurrentUI
 				local currentCustomizeUI = Store:getState().UIReducer.CurrentCustomizeUI
 
@@ -429,7 +429,7 @@ function TutorialController:UpdateUIHighlight()
 
 			UIHighlighter.StopAll()
 		end)
-	elseif currentTutorialStep == 11 then
+	elseif currentTutorialStep == 10 then
 		local accessoriesButton = playerGui
 			:WaitForChild("GameScreenGui")
 			:WaitForChild("HUD")
@@ -447,7 +447,7 @@ function TutorialController:UpdateUIHighlight()
 			:WaitForChild("EquipBest")
 
 		task.spawn(function()
-			while currentTutorialStep == 11 do
+			while currentTutorialStep == 10 do
 				local currentUI = Store:getState().UIReducer.CurrentUI
 				local currentCustomizeUI = Store:getState().UIReducer.CurrentCustomizeUI
 
@@ -479,7 +479,7 @@ function TutorialController:TutorialNextStep(skipped: boolean)
 	currentTutorialStep += 1
 	DataService:TutorialProgressed(currentTutorialStep)
 
-	if currentTutorialStep == 10 then
+	if currentTutorialStep == 9 then
 		DataService:GetData(player):andThen(function(playerData)
 			if table.find(playerData.Areas.Unlocked, "Area02") then
 				isAdvancing = false
@@ -529,7 +529,7 @@ end
 --| Knit Startup |--
 function TutorialController:KnitInit()
 	DataService = Knit.GetService("DataService")
-	MatchService = Knit.GetService("MatchService")
+	TournamentService = Knit.GetService("TournamentService")
 	PlayerStatsService = Knit.GetService("PlayerStatsService")
 	CoachesService = Knit.GetService("CoachesService")
 	GachaService = Knit.GetService("GachaService")
@@ -580,8 +580,8 @@ function TutorialController:KnitStart()
 				self:StartFirstMatch()
 			end
 
-			MatchService.MatchSessionEnded:Connect(function(reason, sessionId)
-				if currentTutorialStep == 1 or currentTutorialStep == 7 then
+			TournamentService.TournamentUpdated:Connect(function(payload)
+				if currentTutorialStep == 1 then
 					self:TutorialNextStep(false)
 				end
 			end)
@@ -625,21 +625,21 @@ function TutorialController:KnitStart()
 			end)
 
 			GachaService.GachaOpened:Connect(function(items, type, category)
-				if currentTutorialStep == 8 and category == "SoccerCharacters" then
+				if currentTutorialStep == 7 and category == "SoccerCharacters" then
 					self:TutorialNextStep(false)
-				elseif currentTutorialStep == 10 and category == "Accessories" then
+				elseif currentTutorialStep == 9 and category == "Accessories" then
 					self:TutorialNextStep(false)
 				end
 			end)
 
 			TeamService.TeamSlotSet:Connect(function(equippedSlots)
-				if currentTutorialStep == 9 then
+				if currentTutorialStep == 8 then
 					self:TutorialNextStep(false)
 				end
 			end)
 
 			AccessoryService.AccessoriesUpdated:Connect(function()
-				if currentTutorialStep == 11 then
+				if currentTutorialStep == 10 then
 					self:TutorialNextStep(false)
 				end
 			end)

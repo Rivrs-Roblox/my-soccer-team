@@ -511,8 +511,20 @@ function DataService:TutorialProgressed(player: Player, step: number)
 		return
 	end
 
-	data.TutorialStep = step
-	FunnelsModule:LogOnboardingStep(player, step)
+	local currentStep = data.TutorialStep or 0
+
+	if step > currentStep then
+		if step == 2 then
+			self:ChangeValue(player, "Wins", 1000, true)
+		elseif step == 7 then
+			self:ChangeValue(player, "Wins", 500, true)
+		elseif step == 9 then
+			self:ChangeValue(player, "Wins", 200, true)
+		end
+
+		data.TutorialStep = step
+		FunnelsModule:LogOnboardingStep(player, step)
+	end
 end
 
 -- Change tutorial state
@@ -523,7 +535,7 @@ function DataService:TutorialFinished(player: Player, state: boolean)
 	end
 
 	data.TutorialComplete = true
-	FunnelsModule:LogOnboardingStep(player, 13)
+	FunnelsModule:LogOnboardingStep(player, 12)
 	self.Client.TutorialCompleted:Fire(player)
 	self.TutorialCompletedSignal:Fire(player)
 end

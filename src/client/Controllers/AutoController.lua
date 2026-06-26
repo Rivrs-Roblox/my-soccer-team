@@ -81,6 +81,22 @@ function AutoController:RequestAutoTraining(statType: string)
 	end
 end
 
+function AutoController:RequestStopTraining()
+	if not self:CanSendRequest() then
+		return
+	end
+
+	self.NextRequestAt = os.clock() + REQUEST_COOLDOWN
+
+	local ok, err = pcall(function()
+		self.TrainingService:RequestStopTraining()
+	end)
+
+	if not ok then
+		warn("[AutoController] RequestStopTraining failed:", err)
+	end
+end
+
 function AutoController:KnitStart()
 	self.TrainingService = Knit.GetService("TrainingService")
 	self:_syncStore()

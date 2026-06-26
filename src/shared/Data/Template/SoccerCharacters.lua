@@ -14,8 +14,8 @@ local SoccerCharacters = {
 	},
 
 	["Matteo"] = {
-		["Name"] = "Matteo",
-		["DisplayName"] = "Matteo Pessina",
+		["Name"] = "Matteo",	
+		["DisplayName"] = "Matteo",
 		["Parent"] = "Matteo",
 		["Multipliers"] = {
 			["Shoot"] = 1.2,
@@ -54,7 +54,7 @@ local SoccerCharacters = {
 
 	["Kravetsky"] = {
 		["Name"] = "Kravetsky",
-		["DisplayName"] = "Artem Kravets",
+		["DisplayName"] = "Kravetsky",
 		["Parent"] = "Kravetsky",
 		["Multipliers"] = {
 			["Shoot"] = 1.1,
@@ -67,7 +67,7 @@ local SoccerCharacters = {
 
 	["Bambang"] = {
 		["Name"] = "Bambang",
-		["DisplayName"] = "Bambang Pamungkas",
+		["DisplayName"] = "Bambang",
 		["Parent"] = "Bambang",
 		["Multipliers"] = {
 			["Shoot"] = 1.5,
@@ -80,7 +80,7 @@ local SoccerCharacters = {
 
 	["Arsen"] = {
 		["Name"] = "Arsen",
-		["DisplayName"] = "Arsen Zakharyan",
+		["DisplayName"] = "Arsen",
 		["Parent"] = "Arsen",
 		["Multipliers"] = {
 			["Shoot"] = 1.2,
@@ -93,7 +93,7 @@ local SoccerCharacters = {
 
 	["Takumi"] = {
 		["Name"] = "Takumi",
-		["DisplayName"] = "Takumi Minamino",
+		["DisplayName"] = "Takumi",
 		["Parent"] = "Takumi",
 		["Multipliers"] = {
 			["Shoot"] = 1.1,
@@ -106,7 +106,7 @@ local SoccerCharacters = {
 
 	["Enzo"] = {
 		["Name"] = "Enzo",
-		["DisplayName"] = "Enzo Perez",
+		["DisplayName"] = "Enzo",
 		["Parent"] = "Enzo",
 		["Multipliers"] = {
 			["Shoot"] = 1.2,
@@ -119,7 +119,7 @@ local SoccerCharacters = {
 
 	["Markus"] = {
 		["Name"] = "Markus",
-		["DisplayName"] = "Marco Reus",
+		["DisplayName"] = "Markus",
 		["Parent"] = "Markus",
 		["Multipliers"] = {
 			["Shoot"] = 1.2,

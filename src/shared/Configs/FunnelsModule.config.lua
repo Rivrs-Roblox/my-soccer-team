@@ -9,12 +9,11 @@ return table.freeze({
 		[5] = "Trained shooting stats",
 		[6] = "Trained passing stats",
 		[7] = "Trained dribbling stats",
-		[8] = "Completed second match",
-		[9] = "Bought character pack",
-		[10] = "Equipped character",
-		[11] = "Bought accessory",
-		[12] = "Equipped accessory",
-		[13] = "Completed tutorial",
+		[8] = "Bought character pack",
+		[9] = "Equipped character",
+		[10] = "Bought accessory",
+		[11] = "Equipped accessory",
+		[12] = "Completed tutorial",
 	},
 
 	["Progress"] = {

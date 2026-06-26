@@ -147,8 +147,16 @@ function MatchPresentationController:_playMotionAnimation(model, requestedName, 
 
 	if requestedName == "StrafeLeft" or requestedName == "StrafeRight" or requestedName == "Dribble" then
 		fallbackName = "Run"
+	elseif requestedName:sub(1, 9) == "Dribble -" then
+		-- Dribble trick animations (e.g. "Dribble - Chop") are one-shot;
+		-- do not silently fall back to Idle if they are missing.
+		fallbackName = nil
 	elseif requestedName ~= "Run" and requestedName ~= "Idle" then
 		fallbackName = "Idle"
+	end
+
+	if not fallbackName then
+		return nil
 	end
 
 	local fallbackTrack = self:_playRigAnimation(model, fallbackName, speed or 1.0)

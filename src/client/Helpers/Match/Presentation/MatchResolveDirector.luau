@@ -195,18 +195,31 @@ return function(MatchPresentationController, Context)
 	end
 
 	local function selectDribbleTrickAnimation(payload, actorModel)
-		local modelName = actorModel and tostring(actorModel.Name) or "(nil model)"
-		
-		local fallbackSeed = BuildStableSeed(
+		local seed = BuildStableSeed(
 			payload and payload.SessionId,
 			payload and (payload.StepIndex or payload.Step),
 			payload and (payload.ActorSlot or payload.FromSlot),
 			997
 		)
+		local index = (seed % #DRIBBLE_TRICK_ANIMATION_NAMES) + 1
+		local animName = DRIBBLE_TRICK_ANIMATION_NAMES[index]
+
+		-- Try named animation from model's Animations folder (soccer characters)
+		local animFolder = getAnimationFolder(actorModel)
+		if animFolder then
+			local animObject = animFolder:FindFirstChild(animName)
+			if animObject and animObject:IsA("Animation") then
+				return animObject, animName
+			end
+		end
+
+		-- Fallback: use a hardcoded ID (e.g. LocalMatchPlayerProxy has no dribble trick anims)
 		local fallbackId = DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS[
-			(fallbackSeed % #DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS) + 1
+			(seed % #DRIBBLE_TRICK_FALLBACK_ANIMATION_IDS) + 1
 		]
-		return fallbackId
+		local tempAnim = Instance.new("Animation")
+		tempAnim.AnimationId = fallbackId
+		return tempAnim, animName
 	end
 
 	local function findEmbeddedBallVisualPart(actorModel)
@@ -589,44 +602,34 @@ return function(MatchPresentationController, Context)
 		local targets = self:_buildDribbleResolveTargets(payload, actorModel, enemyModel, currentCFrame, enemyRoot, success)
 		local failAttackDirection = nil
 		local enemyStartedBehindCarrier = false
-		local dribbleTrickName = success and selectDribbleTrickAnimation(payload, actorModel) or nil
+		local dribbleAnimObject, dribbleTrickName = success
+			and selectDribbleTrickAnimation(payload, actorModel)
+			or nil, nil
 		local dribbleTrickTrack = nil
 		local dribbleTrickDuration = nil
 		local dribbleTrickMoveSpeed = nil
 		local embeddedBallPart = nil
 		local usingEmbeddedBall = false
 
-		if dribbleTrickName then
-			-- If dribbleTrickName is a raw AnimationId (fallback path), load directly via Animator.
-			-- Otherwise use the normal named-animation lookup.
-			local isFallbackId = type(dribbleTrickName) == "string"
-				and dribbleTrickName:sub(1, 13) == "rbxassetid://"
-
-			if isFallbackId then
-				local animator = actorModel and (
-					actorModel:FindFirstChildOfClass("Animator")
-					or actorModel:FindFirstChild("Animator", true)
-				)
-				if animator then
-					local tempAnim = Instance.new("Animation")
-					tempAnim.AnimationId = dribbleTrickName
-					local ok, track = pcall(function()
-						return animator:LoadAnimation(tempAnim)
-					end)
-					tempAnim:Destroy()
-					if ok and track then
-						track:Play(0, 1, 1.0)
-						dribbleTrickTrack = track
-					else
-						dribbleTrickName = nil
-					end
-				else
-					dribbleTrickName = nil
+		if dribbleAnimObject then
+			-- Use the same direct-animator pattern as shoot: load with Action priority so
+			-- it overrides any running Run/Idle locomotion tracks.
+			local animator = actorModel and actorModel:FindFirstChildWhichIsA("Animator", true)
+			if animator then
+				local ok, track = pcall(function()
+					return animator:LoadAnimation(dribbleAnimObject)
+				end)
+				-- Temp anim instances (fallback path) can be destroyed after loading
+				if dribbleAnimObject.Parent == nil then
+					dribbleAnimObject:Destroy()
 				end
-			else
-				dribbleTrickTrack = self:_playMotionAnimation(actorModel, dribbleTrickName, 1.0)
-				if not dribbleTrickTrack then
-					dribbleTrickName = nil
+				if ok and track then
+					track.Name = dribbleTrickName or "DribbleTrick"
+					pcall(function() track.Priority = Enum.AnimationPriority.Action end)
+					track.Looped = false
+					track:Play(0.05)
+					track:AdjustSpeed(1.0)
+					dribbleTrickTrack = track
 				end
 			end
 
@@ -651,10 +654,10 @@ return function(MatchPresentationController, Context)
 					end
 					self.MatchBallController:SetBallVisible(false)
 					self:_setActiveEmbeddedBallVisualModel(actorModel)
-					
+
 					local sourcePart = embeddedBallPart
 					local proxyPart = createDribbleTrickEmbeddedBallProxy(self, sourcePart)
-					
+
 					local visibilityToken = (self.DribbleTrickToken or 0) + 1
 					self.DribbleTrickToken = visibilityToken
 
@@ -684,6 +687,16 @@ return function(MatchPresentationController, Context)
 							proxyPart.LocalTransparencyModifier = 0
 						end
 					)
+				end
+
+				-- Freeze the MatchActorRuntimeController animation loop for companion slots
+				-- so it doesn't override the trick track via MatchAnimationHelper.Play each frame.
+				if tonumber(payload.ActorSlot) ~= 1 and self.MatchActorRuntimeController then
+					self.MatchActorRuntimeController:SetLocalMatchAnimationFrozen(LocalPlayer, true)
+					-- Clear cached state for this model so locomotion tracks don't interfere
+					if self.MatchActorRuntimeController.LocalMatchAnimationStates then
+						self.MatchActorRuntimeController.LocalMatchAnimationStates[actorModel] = nil
+					end
 				end
 			end
 		end
@@ -783,7 +796,9 @@ return function(MatchPresentationController, Context)
 			end,
 			HoldEnemyUntilActorReady = false,
 			FollowBall = not usingEmbeddedBall,
-			ActorRunAnimation = "Run",
+			-- Skip forcing Run on the actor while a trick animation is playing;
+			-- forcing Run would call MatchAnimationHelper which stops all other tracks.
+			ActorRunAnimation = dribbleTrickTrack and nil or "Run",
 			ActorRunSpeed = success and 1.08 or nil,
 			ActorMoveSpeed = dribbleTrickMoveSpeed,
 			EnemyRunAnimation = "Run",
@@ -795,6 +810,14 @@ return function(MatchPresentationController, Context)
 			MaxDuration = dribbleTrickDuration and (dribbleTrickDuration + 0.15)
 				or (success and DRIBBLE_RESOLVE_MAX_SECONDS or (enemyStartedBehindCarrier and 1.28 or 1.02)),
 		})
+
+		-- Unfreeze animation loop for companion slots after movement sequence ends
+		if dribbleTrickTrack and tonumber(payload.ActorSlot) ~= 1 and self.MatchActorRuntimeController then
+			self.MatchActorRuntimeController:SetLocalMatchAnimationFrozen(LocalPlayer, false)
+			if self.MatchActorRuntimeController.LocalMatchAnimationStates then
+				self.MatchActorRuntimeController.LocalMatchAnimationStates[actorModel] = nil
+			end
+		end
 
 		if usingEmbeddedBall then
 			local handoffPart = embeddedBallPart and embeddedBallPart.Parent and embeddedBallPart
